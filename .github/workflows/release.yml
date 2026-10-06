@@ -1,0 +1,56 @@
+name: Release addon
+
+on:
+  push:
+    branches: [main]
+    paths: ['Minn Tinkers WoWF.toc']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: addon-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check TOC version
+        id: version
+        run: python3 .github/release.py check
+
+      - name: Validate Lua
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.1
+          find . -name '*.lua' -exec luac5.1 -p {} +
+          lua5.1 Tests/Regression.lua .
+
+      - name: Package addon
+        if: steps.version.outputs.publish == 'true'
+        run: python3 .github/release.py package
+
+      - name: Publish release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; keeping its ZIP unchanged."
+            exit 0
+          fi
+          gh release create "$tag" dist/Minn-Tinkers-WoWF.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Minn Tinkers WoWF $VERSION" --generate-notes --latest

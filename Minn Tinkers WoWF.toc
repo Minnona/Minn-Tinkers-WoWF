@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: Minn Tinkers WoWF
+## IconTexture: Interface\Icons\Spell_Shaman_Hex
+## Author: Minnona (Northdale)
+## Notes: Modular quality-of-life improvements for World of Warcraft: Forever.
+## Version: 1.0
+## SavedVariables: MinnTinkersWoWFDB
+
+Core.lua
+Modules/FastLoot.lua
+Modules/ActionBarFonts.lua
+Modules/CameraDistance.lua
+Modules/Questing.lua
+Modules/GossipSkip.lua
+Modules/AutoSellJunk.lua
+Modules/CombatIndicator.lua
+UI/Options.lua
