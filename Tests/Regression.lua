@@ -163,7 +163,7 @@ local function fixture(saved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -324,7 +324,7 @@ local cameraSlider, resize = f.env.MinnTinkersWoWFCameraDistance, f.env.MinnTink
 window = f.env.MinnTinkersWoWFOptions
 assert(cameraSlider.value == 1.9 and cameraSlider.enabled and f.camera.writes == 0)
 assert(window.resizable and window.width == 700 and window.height == 480)
-assert(table.concat(resize.bounds, ",") == "560,420,1100,800")
+assert(table.concat(resize.bounds, ",") == "560,450,1100,800")
 cameraSlider:SetValue(2.6)
 assert(f.camera.value == 2.6 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.6)
 f.addon.CameraDistance.SetFactor(100); assert(f.camera.value == 2.6)
@@ -897,3 +897,145 @@ do
     visit(); assert(#state.sales == 1 and #test.timers == 1)
 end
 print("PASS: excluded bags, real inventory removal, bounded skipped-item retries, identity checks and cancellation")
+
+local function chatFixture(saved)
+    local test = fixture(saved)
+    local env = test.env
+    local filters, handlers, popups = {}, {}, {}
+    env.canaccessvalue = function() return true end
+    env.CLOSE = "Close"
+    env.StaticPopupDialogs = {}
+    env.ChatFrameUtil = {
+        AddMessageEventFilter = function(event, callback)
+            assert(not filters[event], "Duplicate chat filter")
+            filters[event] = callback
+        end,
+        RemoveMessageEventFilter = function(event, callback)
+            assert(filters[event] == callback)
+            filters[event] = nil
+        end,
+    }
+    env.LinkUtil = {
+        FormatLink = function(kind, text, url) return "|H" .. kind .. ":" .. url .. "|h" .. text .. "|h" end,
+        IsLinkHandlerRegistered = function(kind) return handlers[kind] ~= nil end,
+        RegisterLinkHandler = function(kind, callback)
+            assert(not handlers[kind], "Duplicate link handler")
+            handlers[kind] = callback
+        end,
+    }
+    local editBox = {
+        SetText = function(self, text) self.text = text end,
+        SetFocus = function(self) self.focus = true end,
+        ClearFocus = function(self) self.focus = false end,
+        HighlightText = function(self) self.selected = true end,
+    }
+    local dialog = { GetEditBox = function() return editBox end }
+    function dialog:Hide()
+        self.shown = false
+        env.StaticPopupDialogs[self.which].OnHide(self)
+    end
+    editBox.GetParent = function() return dialog end
+    env.StaticPopup_Show = function(name, _, _, url)
+        if dialog.shown then dialog:Hide() end
+        dialog.which, dialog.shown = name, true
+        popups[#popups + 1] = url
+        env.StaticPopupDialogs[name].OnShow(dialog, url)
+        return dialog
+    end
+    env.StaticPopup_Hide = function() if dialog.shown then dialog:Hide() end end
+    env.StaticPopup_StandardEditBoxOnEscapePressed = function(box) box:GetParent():Hide() end
+    env.SetItemRef = function(link, _, button)
+        local kind, options = link:match("^([^:]+):(.*)$")
+        if handlers[kind] then handlers[kind](link, nil, {options = options}, {button = button}) end
+    end
+    return test, filters, popups, dialog, editBox
+end
+
+-- Domain detection, punctuation and native markup are tested through the real filter callback.
+do
+    local test, filters = chatFixture()
+    test.login()
+    assert(test.env.MinnTinkersWoWFDB.chatURLs and test.addon.ChatURLs.IsAvailable())
+    local filter = assert(filters.CHAT_MSG_CHANNEL)
+    local function link(url) return "|cff71d5ff|Hminntinkersurl:" .. url .. "|h" .. url .. "|h|r" end
+    for _, case in ipairs({
+        {"discord.gg/asdasdsad", link("discord.gg/asdasdsad")},
+        {"example.com", link("example.com")},
+        {"www.example.com", link("www.example.com")},
+        {"sub.example.online/path?q=1#fragment", link("sub.example.online/path?q=1#fragment")},
+        {"example.com:8080/path", link("example.com:8080/path")},
+        {"https://example.com/a?x=1&y=2", link("https://example.com/a?x=1&y=2")},
+        {"HTTPS://Example.COM/CaseSensitive", link("HTTPS://Example.COM/CaseSensitive")},
+        {"https://youtube.com/@Minn?q=mail@example.com", link("https://youtube.com/@Minn?q=mail@example.com")},
+        {"https://localhost:8080/path", link("https://localhost:8080/path")},
+        {"example.xn--p1ai", link("example.xn--p1ai")},
+        {"Visit (discord.gg/invite), please!", "Visit (" .. link("discord.gg/invite") .. "), please!"},
+        {"'example.com'.", "'" .. link("example.com") .. "'."},
+        {"<https://example.com>", "<" .. link("https://example.com") .. ">"},
+        {"https://en.wikipedia.org/wiki/Function_(mathematics)).", link("https://en.wikipedia.org/wiki/Function_(mathematics)") .. ")."},
+        {"example.com and discord.gg/test", link("example.com") .. " and " .. link("discord.gg/test")},
+        {"|cffff0000example.com red|r", "|cffff0000" .. link("example.com") .. "|cffff0000 red|r"},
+        {"|Hitem:123|h[www.fake.com]|h example.com", "|Hitem:123|h[www.fake.com]|h " .. link("example.com")},
+        {"|Hplayer:Example|h[example.com]|h |Hspell:123|h[example.com]|h discord.gg/test", "|Hplayer:Example|h[example.com]|h |Hspell:123|h[example.com]|h " .. link("discord.gg/test")},
+        {"|TInterface/example.com:12|t |Aexample.com:12|a example.com", "|TInterface/example.com:12|t |Aexample.com:12|a " .. link("example.com")},
+        {"|| example.com", "|| " .. link("example.com")},
+    }) do
+        local discard, text = filter(nil, "CHAT_MSG_CHANNEL", case[1], "Sender", nil, 7)
+        assert(discard == false and text == case[2], "Unexpected URL parsing: " .. case[1] .. " => " .. tostring(text))
+        assert(select(2, filter(nil, "CHAT_MSG_CHANNEL", text)) == nil, "Do not wrap links twice")
+    end
+    for _, text in ipairs({"hello there", "1.2.3", "3.14", "user@example.com", "user@example.com/path", "ftp://example.com/file", "https://", "bad..example.com", "-bad.example.com", "example.c", "|Hitem:123|h[example.com]", "|Texample.com"}) do
+        assert(select(2, filter(nil, "CHAT_MSG_CHANNEL", text)) == nil, "Unexpected link: " .. text)
+    end
+    local function pack(...) return {n = select("#", ...), ...} end
+    local args = pack(filter(nil, "CHAT_MSG_WHISPER", "example.com", "Sender", nil, 42, nil))
+    assert(args.n == 6 and args[3] == "Sender" and args[4] == nil and args[5] == 42 and args[6] == nil)
+    local secret = setmetatable({}, {__index = function() error("Read secret text") end})
+    test.env.canaccessvalue = function(value) return not rawequal(value, secret) end
+    assert(filter(nil, "CHAT_MSG_CHANNEL", secret) == false)
+    assert(select(2, filter(nil, "CHAT_MSG_CHANNEL", nil)) == nil)
+end
+print("PASS: bare domains, protocols, multiple URLs, punctuation, balanced brackets, existing links/textures/colors, idempotence, chat arguments and inaccessible text")
+
+-- Native copy popup, settings persistence and filter lifecycle, including combat/death-independent callbacks.
+do
+    local test, filters, popups, dialog, box = chatFixture()
+    local native = test.env.SetItemRef
+    test.login(); test.addon.ChatURLs.Initialize()
+    test.addon.ChatURLs.SetEnabled(true)
+    assert(test.env.SetItemRef == native)
+    local count = 0
+    for _ in pairs(filters) do count = count + 1 end
+    assert(count == 18 and filters.CHAT_MSG_BN_WHISPER and filters.CHAT_MSG_INSTANCE_CHAT_LEADER)
+    test.addon.ToggleOptions()
+    local check = test.env.MinnTinkersWoWFChatURLs
+    assert(check.enabled and check:GetChecked())
+    test.env.SetItemRef("minntinkersurl:discord.gg/Test", nil, "RightButton")
+    assert(#popups == 0)
+    test.combat(true)
+    test.env.SetItemRef("minntinkersurl:discord.gg/Test", nil, "LeftButton")
+    assert(#popups == 1 and dialog.shown and box.focus and box.selected and box.text == "discord.gg/Test")
+    local info = test.env.StaticPopupDialogs[dialog.which]
+    assert(info.whileDead and info.hideOnEscape and info.maxLetters == 0 and not info.exclusive)
+    test.env.SetItemRef("minntinkersurl:https://example.com/a:b?q=1", nil, "LeftButton")
+    assert(#popups == 2 and box.text == "https://example.com/a:b?q=1")
+    info.EditBoxOnEscapePressed(box)
+    assert(not dialog.shown and not box.focus)
+    for _, bad in ipairs({"javascript:alert(1)", "example.com|Hitem:1|h", "example.com\nother", "user@example.com"}) do
+        test.env.SetItemRef("minntinkersurl:" .. bad, nil, "LeftButton")
+    end
+    assert(#popups == 2)
+    test.env.SetItemRef("minntinkersurl:example.com", nil, "LeftButton")
+    check:SetChecked(false); check.scripts.OnClick(check)
+    assert(not dialog.shown and not box.focus and next(filters) == nil and not test.env.MinnTinkersWoWFDB.chatURLs)
+    test.addon.ChatURLs.SetEnabled(false)
+    test.env.SetItemRef("minntinkersurl:example.com", nil, "LeftButton")
+    assert(dialog.shown, "Existing scrollback links remain usable after detection is disabled")
+    info.EditBoxOnEnterPressed(box); assert(not dialog.shown and not box.focus)
+    local reload, reloadFilters = chatFixture(test.env.MinnTinkersWoWFDB)
+    reload.login(); assert(next(reloadFilters) == nil)
+    reload.addon.ChatURLs.SetEnabled(true); assert(reloadFilters.CHAT_MSG_GUILD)
+    test = fixture(); test.login(); test.addon.ToggleOptions()
+    assert(not test.env.MinnTinkersWoWFChatURLs.enabled, "Unavailable APIs disable the control")
+end
+print("PASS: native copy popup selection/reuse/Esc/Enter, unchanged click handler, combat callbacks, malformed links, saved toggle, duplicate guards and filter removal")

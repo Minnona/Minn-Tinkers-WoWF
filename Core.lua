@@ -50,6 +50,9 @@ startup:SetScript("OnEvent", function(self, event, name)
         if MinnTinkersWoWFDB.autoSellJunk == nil then
             MinnTinkersWoWFDB.autoSellJunk = true
         end
+        if MinnTinkersWoWFDB.chatURLs == nil then
+            MinnTinkersWoWFDB.chatURLs = true
+        end
         MinnTinkersWoWFDB.popupProtection = nil
         self:UnregisterEvent(event)
     elseif event == "PLAYER_LOGIN" then
@@ -61,6 +64,7 @@ startup:SetScript("OnEvent", function(self, event, name)
         addon.GossipSkip.Initialize()
         addon.AutoSellJunk.Initialize()
         addon.CombatIndicator.Initialize()
+        addon.ChatURLs.Initialize()
         addon.InitializeMinimapButton()
     end
 end)

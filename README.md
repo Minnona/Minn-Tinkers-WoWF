@@ -11,6 +11,7 @@ Quality-of-life settings for **World of Warcraft: Forever**.
 - **Junk selling:** automatically sell grey items, respecting excluded bags.
 - **Action-bar fonts:** separate sizes for keybinds, item counts and macro names.
 - **Combat indicator:** persistent red edge glow with adjustable opacity and width.
+- **Chat URLs:** click web addresses, including `discord.gg/invite`, to open a copy popup; press **Ctrl+C**.
 
 Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers WoWF`. Open settings with **`/minn`** or the frog minimap button.
 

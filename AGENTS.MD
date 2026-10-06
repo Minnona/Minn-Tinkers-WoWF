@@ -200,6 +200,8 @@ The goal is the least code worth owning.
 
 ## Publishing
 
+Work locally. Push commits or publish GitHub updates only after the user explicitly approves them.
+
 The GitHub repository is Minnona/Minn-Tinkers-WoWF; the addon folder and TOC remain `Minn Tinkers WoWF`.
 
 When new features go live, bump `## Version` in `Minn Tinkers WoWF.toc` before pushing the release to `main`. Use a new numeric version (for example, 1.1 or 1.1.1); never reuse a published version. The release workflow tests the addon and packages the stable `Minn-Tinkers-WoWF.zip` asset with a single `Minn Tinkers WoWF/` folder. Keep the README concise and its latest-ZIP link at the beginning.

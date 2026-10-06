@@ -103,7 +103,7 @@ local function CreateOptions()
     window:Hide()
     window:SetSize(
         math.min(1100, math.max(560, tonumber(MinnTinkersWoWFDB.windowWidth) or 700)),
-        math.min(800, math.max(420, tonumber(MinnTinkersWoWFDB.windowHeight) or 480)))
+        math.min(800, math.max(450, tonumber(MinnTinkersWoWFDB.windowHeight) or 480)))
     window:SetPoint("CENTER")
     window:SetFrameStrata("DIALOG")
     window:SetTitle(addon.title)
@@ -119,7 +119,7 @@ local function CreateOptions()
     window:HookScript("OnHide", window.StopMovingOrSizing)
     local resize = CreateFrame("Button", "MinnTinkersWoWFResize", window, "PanelResizeButtonTemplate")
     resize:SetPoint("BOTTOMRIGHT", -3, 3)
-    resize:Init(window, 560, 420, 1100, 800)
+    resize:Init(window, 560, 450, 1100, 800)
     local function SaveSize()
         MinnTinkersWoWFDB.windowWidth, MinnTinkersWoWFDB.windowHeight = window:GetSize()
     end
@@ -267,6 +267,11 @@ local function CreateOptions()
         format = function(value) return string.format("%d", value) end,
         tooltip = "Sets the width of the soft edge glow in UI units. The inner edge fades to transparent. Changes apply immediately, including during combat.",
     })
+    CreateSection(pages[2], 298, "Chat")
+    checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFChatURLs", 320, false,
+        "Clickable chat URLs", "Highlights web addresses in new chat messages, including bare domains such as discord.gg/invite. Click a link to select its address in a copy window, then press Ctrl+C. Existing WoW links remain intact.",
+        function() return MinnTinkersWoWFDB.chatURLs end,
+        addon.ChatURLs.SetEnabled, addon.ChatURLs.IsAvailable)
     window:SetScript("OnShow", function()
         check:SetChecked(MinnTinkersWoWFDB.fastAutoloot)
         for _, control in ipairs(checks) do control:Refresh() end
