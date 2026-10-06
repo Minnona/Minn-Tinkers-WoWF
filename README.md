@@ -6,7 +6,7 @@ Quality-of-life settings for **World of Warcraft: Forever**.
 
 - **Fast autoloot:** skips the automatic loot window, with native fallback when needed.
 - **Camera distance:** adjustable maximum zoom-out limit.
-- **Questing:** auto accept and turn in, skipping unlimited repeatables. Item rewards require manual completion; optionally preselect the highest vendor-value reward.
+- **Questing:** auto accept and turn in, skipping unlimited repeatables. Zero or one reward choice auto-completes; two or more require manual completion, with optional highest vendor-value preselection.
 - **Gossip:** skip an NPC's sole dialogue option when no quests are listed.
 - **Junk selling:** automatically sell grey items, respecting excluded bags.
 - **Action-bar fonts:** separate sizes for keybinds, item counts and macro names.

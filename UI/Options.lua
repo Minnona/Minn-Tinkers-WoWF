@@ -204,8 +204,8 @@ local function CreateOptions()
     CreateSection(pages[1], 148, "Questing")
     for index, option in ipairs({
         { key = "autoAccept", label = "Auto accept", tooltip = "Accepts available quests. Skips unlimited repeatable turn-ins, such as cloth donations; daily and weekly quests remain eligible. Hold Shift to handle the conversation manually." },
-        { key = "autoTurnIn", label = "Auto turn in", tooltip = "Completes finished quests with no item rewards, excluding unlimited repeatable turn-ins. Any item reward, including fixed rewards, requires your click to complete. Hold Shift to bypass." },
-        { key = "vendorReward", label = "Choose highest vendor-value reward", tooltip = "Preselects the reward with the highest total vendor selling price, including stack quantity. You can change the selection and must click to complete any quest with item rewards. Ties select the first reward; missing prices leave the choice manual. Does not sell items. Hold Shift to bypass." },
+        { key = "autoTurnIn", label = "Auto turn in", tooltip = "Completes finished quests with zero or one reward choice, including fixed rewards, excluding unlimited repeatable turn-ins. Two or more choices require your click to complete. Hold Shift to bypass." },
+        { key = "vendorReward", label = "Choose highest vendor-value reward", tooltip = "Preselects the reward with the highest total vendor selling price, including stack quantity. Quests with two or more choices require your click to complete, and you can change the selection. Ties select the first reward; missing prices leave the choice manual. Does not sell items. Hold Shift to bypass." },
     }) do
         local key = option.key
         checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFQuest_" .. key,

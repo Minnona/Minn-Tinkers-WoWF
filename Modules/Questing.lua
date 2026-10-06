@@ -84,8 +84,13 @@ local function FinishReward()
     end
     local settings = MinnTinkersWoWFDB.questing
     local count, best, bestValue = GetNumQuestChoices(), nil, -1
-    local hasItems = count > 0 or GetNumQuestRewards() > 0
-    if hasItems and not settings.vendorReward then CancelReward(); return end
+    if settings.autoTurnIn and count <= 1 then
+        CancelReward()
+        -- Blizzard selects a sole choice and preserves money-cost confirmations.
+        QuestRewardCompleteButton_OnClick()
+        return
+    end
+    if not settings.vendorReward then CancelReward(); return end
     if count > 0 then
         if count == 1 then
             best = 1
@@ -111,10 +116,6 @@ local function FinishReward()
         return
     end
     CancelReward()
-    if settings.autoTurnIn and not hasItems and not Bypassed() then
-        -- Preserve Blizzard's confirmation for quests that charge money.
-        QuestRewardCompleteButton_OnClick()
-    end
 end
 
 function module.SetOption(key, value)

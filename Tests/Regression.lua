@@ -399,6 +399,7 @@ local function questFixture(saved)
     env.QuestInfo_ShowRewards = function() env.QuestInfoFrame.itemChoice = 0 end
     env.QuestInfoItem_OnClick = function(button) env.QuestInfoFrame.itemChoice = button:GetID() end
     env.QuestRewardCompleteButton_OnClick = function()
+        if #state.choices == 1 then env.QuestInfoFrame.itemChoice = 1 end
         state.rewarded = state.rewarded + 1
         state.rewardIndex = env.QuestInfoFrame.itemChoice
         state.moneyConfirmation = state.moneyCost and true or false
@@ -457,34 +458,34 @@ interacting = false; f.env.QuestFrame:Hide(); f.emit("PLAYER_INTERACTION_MANAGER
 f.timers[#f.timers].callback(); f.env.QuestFrame:Show(); f.emit("QUEST_DETAIL")
 assert(quest.accepted == 1)
 
--- Only quests without loot auto-complete; item rewards always require confirmation.
+-- Zero/one choices auto-complete, including fixed rewards; multiple choices stay manual.
 f, quest, choices = questFixture(); f.login()
 f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1)
 quest.fixedRewards = 1
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 2)
 f.addon.Questing.SetOption("vendorReward", true)
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 3)
 quest.fixedRewards = 0
 f.addon.Questing.SetOption("vendorReward", false)
 choices({{link = "item:a", quantity = 1, price = 20}})
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 0)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 4 and quest.rewardIndex == 1)
 choices({{link = "item:a", quantity = 1, price = 20}, {link = "item:b", quantity = 3, price = 10}})
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 0)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 4 and f.env.QuestInfoFrame.itemChoice == 0)
 f.addon.Questing.SetOption("vendorReward", true)
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 2)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 4 and f.env.QuestInfoFrame.itemChoice == 2)
 -- The player can change the suggestion without automation claiming it.
 f.env.QuestInfoItem_OnClick(f.env.QuestInfoFrame.rewardsFrame.RewardButtons[1])
 f.emit("QUEST_ITEM_UPDATE")
-assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 1)
+assert(quest.rewarded == 4 and f.env.QuestInfoFrame.itemChoice == 1)
 -- Equal prices select the first; zero vendor prices are valid.
 choices({{link = "item:a", quantity = 1, price = 0}, {link = "item:b", quantity = 1, price = 0}})
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 1)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 4 and f.env.QuestInfoFrame.itemChoice == 1)
 f.addon.Questing.SetOption("autoTurnIn", false)
 choices({{link = "item:a", quantity = 1, price = 20}, {link = "item:b", quantity = 1, price = 10}})
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 1)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 4 and f.env.QuestInfoFrame.itemChoice == 1)
 f.addon.Questing.SetOption("autoTurnIn", true)
 choices({{link = "item:a", quantity = 1, price = 20}})
-f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 1 and f.env.QuestInfoFrame.itemChoice == 1)
+f.emit("QUEST_COMPLETE"); assert(quest.rewarded == 5 and quest.rewardIndex == 1)
 choices({})
 quest.moneyCost = true; f.emit("QUEST_COMPLETE"); assert(quest.moneyConfirmation)
 
@@ -516,6 +517,45 @@ f, quest = missingPrices(); quest.id = 999; f.emit("GET_ITEM_INFO_RECEIVED")
 assert(quest.rewarded == 0)
 
 print("PASS: quest selection, repeatable exclusions, Shift bypass and reward regressions")
+
+-- Choice thresholds preserve both toggles, bypasses and native money confirmation.
+do
+    for _, autoTurnIn in ipairs({false, true}) do
+        for _, vendorReward in ipairs({false, true}) do
+            for count = 0, 3 do
+                local test, state, setChoices = questFixture({questing = {autoTurnIn = autoTurnIn, vendorReward = vendorReward}})
+                test.login()
+                local items = {}
+                for index = 1, count do items[index] = {link = "item:" .. index, quantity = 1, price = index} end
+                setChoices(items)
+                state.fixedRewards = 2
+                test.emit("QUEST_COMPLETE")
+                local expected = autoTurnIn and count <= 1 and 1 or 0
+                assert(state.rewarded == expected, "Auto turn-in threshold must depend on choices, independently of vendor selection")
+                local selection = count > 0 and (vendorReward or autoTurnIn and count == 1) and count or 0
+                assert(test.env.QuestInfoFrame.itemChoice == selection)
+                test.env.QuestInfo_ShowRewards(); test.emit("QUEST_ITEM_UPDATE"); test.emit("GET_ITEM_INFO_RECEIVED")
+                assert(state.rewarded == expected, "Reward refreshes must not submit again")
+            end
+        end
+    end
+    local test, state, setChoices = questFixture(); test.login()
+    setChoices({{link = "uncached"}})
+    test.env.C_Item.GetItemInfo = function() error("A sole choice must not need a vendor price") end
+    state.moneyCost = true
+    test.emit("QUEST_COMPLETE")
+    assert(state.rewarded == 1 and state.rewardIndex == 1 and state.moneyConfirmation and #test.timers == 0)
+    test, state, setChoices = questFixture(); test.login()
+    setChoices({{link = "single"}}); state.shift = true
+    test.emit("QUEST_COMPLETE"); assert(state.rewarded == 0)
+    state.shift = false; test.emit("QUEST_ITEM_UPDATE"); assert(state.rewarded == 0)
+    test, state, setChoices = questFixture(); test.login()
+    setChoices({{link = "single"}}); state.repeatable[state.id] = true
+    test.emit("QUEST_COMPLETE"); assert(state.rewarded == 0)
+    state.logs[state.id] = {frequency = test.env.Enum.QuestFrequency.Daily}
+    test.emit("QUEST_COMPLETE"); assert(state.rewarded == 1)
+end
+print("PASS: zero/one/two/three choices, fixed rewards, independent toggles, uncached sole reward, no duplicate submission, Shift, repeatables and native confirmations")
 
 -- Removed module preferences are cleaned up without changing other saved settings.
 f = fixture({popupProtection = {enabled = true}, extra = "preserved"}); f.login()
