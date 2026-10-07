@@ -21,6 +21,12 @@ startup:SetScript("OnEvent", function(self, event, name)
         if type(MinnTinkersWoWFDB) ~= "table" then
             MinnTinkersWoWFDB = {}
         end
+        if type(MinnTinkersWoWFCharDB) ~= "table" then
+            MinnTinkersWoWFCharDB = {}
+        end
+        if type(MinnTinkersWoWFCharDB.rangeIndicator) ~= "table" then
+            MinnTinkersWoWFCharDB.rangeIndicator = {}
+        end
         if MinnTinkersWoWFDB.fastAutoloot == nil then
             MinnTinkersWoWFDB.fastAutoloot = true
         end
@@ -65,6 +71,7 @@ startup:SetScript("OnEvent", function(self, event, name)
         addon.AutoSellJunk.Initialize()
         addon.CombatIndicator.Initialize()
         addon.ChatURLs.Initialize()
+        addon.RangeIndicator.Initialize()
         addon.InitializeMinimapButton()
     end
 end)

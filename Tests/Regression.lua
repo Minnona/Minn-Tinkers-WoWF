@@ -1,5 +1,5 @@
 local root = assert(arg[1], "Pass the addon directory")
-local function fixture(saved)
+local function fixture(saved, characterSaved)
     local env = setmetatable({}, { __index = _G })
     env._G = env
     local frames, timers, requests, nativeCalls, messages = {}, {}, {}, {}, {}
@@ -23,6 +23,7 @@ local function fixture(saved)
     env.issecretvalue = function() return false end
     env.CreateColor = function(r, g, b, a) return {r = r, g = g, b = b, a = a} end
     env.MinnTinkersWoWFDB = saved
+    env.MinnTinkersWoWFCharDB = characterSaved
     env.Enum = { LootSlotType = { None = 0 } }
     env.ERR_INV_FULL = "Inventory is full."
     env.UISpecialFrames, env.SlashCmdList = {}, {}
@@ -95,11 +96,23 @@ local function fixture(saved)
         function f:SetTitle(value) self.title = value end
         function f:SetPortraitToAsset(value) self.portrait = value end
         function f:SetText(value) self.text = value end
+        function f:GetText() return self.text or "" end
+        function f:SetAutoFocus(value) self.autoFocus = value end
+        function f:SetMaxLetters(value) self.maxLetters = value end
+        function f:SetMaxLines(value) self.maxLines = value end
+        function f:SetFocus() self.focus = true end
+        function f:ClearFocus() self.focus = false end
+        function f:SetFontHeight(value) self.fontSize = value end
+        function f:SetTextColor(...) self.color = {...} end
         function f:SetTexture(value) self.texture = value end
         function f:GetStringWidth() return #self.text * 7 end
         function f:SetChecked(value) self.checked = value end
         function f:GetChecked() return self.checked end
-        function f:CreateFontString() return frame() end
+        function f:CreateFontString(name)
+            local text = frame(name)
+            if name then env[name] = text end
+            return text
+        end
         function f:CreateTexture() return frame() end
         return f
     end
@@ -163,7 +176,7 @@ local function fixture(saved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/RangeIndicator.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -323,8 +336,8 @@ f.env.SlashCmdList.MINNTINKERSWOWF()
 local cameraSlider, resize = f.env.MinnTinkersWoWFCameraDistance, f.env.MinnTinkersWoWFResize
 window = f.env.MinnTinkersWoWFOptions
 assert(cameraSlider.value == 1.9 and cameraSlider.enabled and f.camera.writes == 0)
-assert(window.resizable and window.width == 700 and window.height == 480)
-assert(table.concat(resize.bounds, ",") == "560,450,1100,800")
+assert(window.resizable and window.width == 700 and window.height == 670)
+assert(table.concat(resize.bounds, ",") == "560,670,1100,800")
 cameraSlider:SetValue(2.6)
 assert(f.camera.value == 2.6 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.6)
 f.addon.CameraDistance.SetFactor(100); assert(f.camera.value == 2.6)
@@ -337,7 +350,7 @@ assert(not f.addon.CameraDistance.SetFactor(2) and f.env.MinnTinkersWoWFDB.camer
 window:SetSize(850, 600); resize.resizeStopped(window)
 assert(f.env.MinnTinkersWoWFDB.windowWidth == 850 and f.env.MinnTinkersWoWFDB.windowHeight == 600)
 reload = fixture(f.env.MinnTinkersWoWFDB); reload.login(); reload.env.SlashCmdList.MINNTINKERSWOWF()
-assert(reload.camera.value == 2.4 and reload.env.MinnTinkersWoWFOptions.width == 850 and reload.env.MinnTinkersWoWFOptions.height == 600)
+assert(reload.camera.value == 2.4 and reload.env.MinnTinkersWoWFOptions.width == 850 and reload.env.MinnTinkersWoWFOptions.height == 670)
 
 -- Restricted/missing CVars remain untouched, and programmatic UI refresh does not write.
 for _, restriction in ipairs({"locked", "secure", "readOnly"}) do
@@ -1079,3 +1092,268 @@ do
     assert(not test.env.MinnTinkersWoWFChatURLs.enabled, "Unavailable APIs disable the control")
 end
 print("PASS: native copy popup selection/reuse/Esc/Enter, unchanged click handler, combat callbacks, malformed links, saved toggle, duplicate guards and filter removal")
+
+local function rangeFixture(saved, characterSaved)
+    local test = fixture(saved, characterSaved)
+    local env = test.env
+    local state = {ranges = {}, watches = {}, subscriptions = {}, checks = 0, cursor = {}, clears = 0, menus = {}}
+    local secret = setmetatable({}, {__tostring = function() error("Used a secret") end, __index = function() error("Read a secret") end})
+    state.secret = secret
+    env.canaccessvalue = function(...)
+        for index = 1, select("#", ...) do
+            if rawequal(select(index, ...), secret) then return false end
+        end
+        return true
+    end
+    env.Enum.SpellBookSpellBank = {Player = 0, Pet = 1}
+    env.Enum.SpellBookItemType = {Spell = 1, FutureSpell = 2, Flyout = 4}
+    state.spells = {
+        [75] = {spellID = 75, name = "Auto Shot", iconID = 100, subName = "", known = true, hasRange = true},
+        [116] = {spellID = 116, name = "Frostbolt", iconID = 101, subName = "Rank 1", known = true, hasRange = true},
+        [205] = {spellID = 205, name = "Frostbolt", iconID = 101, subName = "Rank 2", known = true, hasRange = true},
+        [133] = {spellID = 133, name = "Fireball", iconID = 102, subName = "", known = true, hasRange = true},
+        [197] = {spellID = 197, name = "Fire Blast", iconID = 103, subName = "", known = true, hasRange = true},
+        [19434] = {spellID = 19434, name = "Aimed Shot", iconID = 104, subName = "", known = true, hasRange = true},
+        [17] = {spellID = 17, name = "Self Buff", iconID = 105, subName = "", known = true, hasRange = false},
+        [123] = {spellID = 123, name = "Passive", iconID = 106, subName = "", known = true, hasRange = true, isPassive = true},
+        [124] = {spellID = 124, name = "Unknown", iconID = 107, subName = "", known = false, hasRange = true, isOffSpec = true},
+    }
+    local slots = {state.spells[75], state.spells[116], state.spells[205], state.spells[133], state.spells[197],
+        state.spells[19434], state.spells[17], state.spells[123], state.spells[124], state.spells[75],
+        {itemType = 4}, {itemType = 2, spellID = 999}}
+    for _, info in pairs(state.spells) do info.itemType = 1 end
+    env.C_SpellBook = {
+        IsSpellKnown = function(id) return state.spells[id] and state.spells[id].known or false end,
+        GetNumSpellBookSkillLines = function() return 2 end,
+        GetSpellBookSkillLineInfo = function(index)
+            return index == 1 and {itemIndexOffset = 0, numSpellBookItems = 4}
+                or {itemIndexOffset = 4, numSpellBookItems = #slots - 4}
+        end,
+        GetSpellBookItemInfo = function(slot, bank) assert(bank == 0); return slots[slot] end,
+    }
+    env.C_Spell = {
+        GetSpellInfo = function(id) return state.spells[id] end,
+        IsSpellPassive = function(id) return state.spells[id] and state.spells[id].isPassive or false end,
+        SpellHasRange = function(id) return state.spells[id] and state.spells[id].hasRange or false end,
+        IsSpellInRange = function(id, unit)
+            assert(unit == "target")
+            state.checks = state.checks + 1
+            return state.ranges[id]
+        end,
+        EnableSpellRangeCheck = function(id, value)
+            state.watches[id] = value
+            state.subscriptions[#state.subscriptions + 1] = {id, value}
+            if value and state.synchronous then test.emit("SPELL_RANGE_CHECK_UPDATE", id, state.ranges[id], true) end
+        end,
+    }
+    env.GetCursorInfo = function() return unpack(state.cursor) end
+    env.ClearCursor = function() state.clears = state.clears + 1; state.cursor = {} end
+    env.MenuUtil = {CreateContextMenu = function(owner, generator)
+        local menu = {owner = owner, buttons = {}}
+        function menu:CreateTitle(text) self.title = text end
+        function menu:SetScrollMode(value) self.scroll = value end
+        function menu:CreateButton(label, callback) self.buttons[#self.buttons + 1] = {label = label, click = callback} end
+        generator(owner, menu)
+        state.menus[#state.menus + 1] = menu
+    end}
+    env.UIParent:SetSize(1200, 800)
+    env.UIParent.centerX, env.UIParent.centerY = 600, 400
+    local create = env.CreateFrame
+    env.CreateFrame = function(kind, name, parent, template)
+        local frame = create(kind, name, parent, template)
+        if name == "MinnTinkersWoWFRangeIndicator" then
+            function frame:EnableMouse(value) self.mouseEnabled = value end
+            function frame:SetClampedToScreen(value) self.clamped = value end
+            function frame:SetFrameStrata(value) self.strata = value end
+            function frame:StartMoving() self.moving = true end
+            function frame:StopMovingOrSizing() self.moving = false end
+            function frame:GetCenter()
+                if self.dragX then return self.dragX, self.dragY end
+                return env.UIParent.centerX + self.point[4], env.UIParent.centerY + self.point[5]
+            end
+            local setPoint, createText = frame.SetPoint, frame.CreateFontString
+            function frame:SetPoint(...)
+                setPoint(self, ...)
+                self.dragX, self.dragY = nil, nil
+            end
+            function frame:CreateFontString(...)
+                self.dot = createText(self, ...)
+                local setColor = self.dot.SetTextColor
+                function self.dot:SetTextColor(...)
+                    self.colorWrites = (self.colorWrites or 0) + 1
+                    setColor(self, ...)
+                end
+                return self.dot
+            end
+        end
+        return frame
+    end
+    return test, state
+end
+
+-- Select a spell through the real settings controls, and retain the previous selection on invalid input.
+do
+    local test, state = rangeFixture(); test.login(); test.addon.ToggleOptions()
+    local env, range = test.env, test.addon.RangeIndicator
+    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local input, slot = env.MinnTinkersWoWFRangeSpellInput, env.MinnTinkersWoWFRangeSpellSlot
+    assert(range.IsAvailable() and range.GetSettings().enabled and range.GetSettings().locked)
+    assert(not env.MinnTinkersWoWFRangeIndicator:IsShown())
+    input:SetText("fIrE bAlL"); input:SetFocus(); input.scripts.OnEnterPressed(input)
+    assert(range.GetSettings().spellID == 133 and input:GetText() == "Fireball" and not input.focus)
+    assert(slot.icon.texture == 102 and state.watches[133])
+    input:SetText("Frostbolt"); env.MinnTinkersWoWFRangeSelectSpell.scripts.OnClick()
+    local menu = state.menus[#state.menus]
+    assert(#menu.buttons == 2 and menu.scroll == 240 and range.GetSettings().spellID == 133)
+    assert(menu.buttons[2].label == "Frostbolt (Rank 2)")
+    menu.buttons[2].click(); assert(range.GetSettings().spellID == 205)
+    input:SetText("frostbolt (rank 1)"); input.scripts.OnEnterPressed(input)
+    assert(range.GetSettings().spellID == 116)
+    input:SetText("Fire"); input.scripts.OnEnterPressed(input)
+    assert(#state.menus[#state.menus].buttons == 2)
+    input:SetText("Aimed"); input.scripts.OnEnterPressed(input)
+    assert(range.GetSettings().spellID == 19434)
+    input:SetText("Not A Spell"); input.scripts.OnEnterPressed(input)
+    assert(range.GetSettings().spellID == 19434 and env.MinnTinkersWoWFRangeStatus:GetText():find("No learned", 1, true))
+    assert(#range.FindSpells("Auto Shot") == 1, "Duplicate spellbook entries must not make a name ambiguous")
+    assert(#range.FindSpells("") == 0 and #range.FindSpells("Self Buff") == 0 and #range.FindSpells("Passive") == 0)
+    assert(#range.FindSpells("Unknown") == 0 and not range.SelectSpell(state.secret))
+    for _, id in ipairs({17, 123, 124, 999}) do assert(not range.SelectSpell(id) and range.GetSettings().spellID == 19434) end
+    state.cursor = {"item", 99}; slot.scripts.OnReceiveDrag()
+    assert(state.clears == 0 and range.GetSettings().spellID == 19434)
+    state.cursor = {"spell", 1, "spell", 17}; slot.scripts.OnReceiveDrag()
+    assert(state.clears == 0 and range.GetSettings().spellID == 19434)
+    state.cursor = {"spell", 1, "spell", state.secret}; slot.scripts.OnReceiveDrag()
+    assert(state.clears == 0 and range.GetSettings().spellID == 19434)
+    state.cursor = {"spell", 1, "spell", 75}; slot.scripts.OnReceiveDrag()
+    assert(state.clears == 1 and range.GetSettings().spellID == 75 and input:GetText() == "Auto Shot")
+    slot.scripts.OnEnter(slot); assert(env.GameTooltip:IsShown())
+    slot.scripts.OnLeave(slot); assert(not env.GameTooltip:IsShown())
+    env.MinnTinkersWoWFRangeClearSpell.scripts.OnClick()
+    assert(range.GetSettings().spellID == nil and state.watches[75] == false and input:GetText() == "")
+    test = fixture(); test.login(); test.addon.ToggleOptions()
+    for _, name in ipairs({"RangeEnabled", "RangeUnlocked", "RangeSize", "RangeOpacity", "RangeSpellSlot", "RangeSpellInput", "RangeSelectSpell", "RangeClearSpell", "RangeResetPosition"}) do
+        assert(test.env["MinnTinkersWoWF" .. name].enabled == false, "Missing range APIs must disable settings")
+    end
+end
+print("PASS: range spell input, case/space matching, rank/partial disambiguation, native menus, drag/drop, invalid/passive/unknown spells, retained selection and unavailable controls")
+
+-- Range transitions are event-driven, combat-safe and do not consume inaccessible payloads.
+do
+    local test, state = rangeFixture(nil, {rangeIndicator = {spellID = 75}})
+    state.ranges[75], state.synchronous = true, true
+    test.login()
+    local env, range = test.env, test.addon.RangeIndicator
+    local frame = env.MinnTinkersWoWFRangeIndicator
+    assert(frame:IsShown() and frame.dot.color[1] == 1 and frame.dot.color[2] == 1 and not frame.mouseEnabled)
+    local subscriptions, checks = #state.subscriptions, state.checks
+    range.Initialize(); assert(#state.subscriptions == subscriptions)
+    test.combat(true); test.emit("SPELL_RANGE_CHECK_UPDATE", 75, false, true)
+    assert(frame:IsShown() and frame.dot.color[2] == 0.15 and state.checks == checks)
+    local writes = frame.dot.colorWrites
+    for _ = 1, 1000 do test.emit("SPELL_RANGE_CHECK_UPDATE", 75, false, true) end
+    assert(state.checks == checks, "Range events must not issue extra range queries")
+    test.emit("SPELL_RANGE_CHECK_UPDATE", 133, true, true)
+    test.emit("SPELL_RANGE_CHECK_UPDATE", state.secret, true, true)
+    assert(frame.dot.colorWrites == writes, "Repeated or unrelated events must not redraw the indicator")
+    test.emit("SPELL_RANGE_CHECK_UPDATE", 75, state.secret, true); assert(not frame:IsShown())
+    test.emit("SPELL_RANGE_CHECK_UPDATE", 75, true, state.secret); assert(not frame:IsShown())
+    test.emit("SPELL_RANGE_CHECK_UPDATE", 75, true, false); assert(not frame:IsShown())
+    state.ranges[75] = false; test.emit("PLAYER_TARGET_CHANGED")
+    assert(frame:IsShown() and frame.dot.color[2] == 0.15 and state.checks == checks + 1)
+    state.ranges[75] = nil; test.emit("PLAYER_TARGET_CHANGED"); assert(not frame:IsShown())
+    range.SetLocked(false); assert(frame:IsShown() and frame.mouseEnabled and frame.dot.color[1] == 0.65 and frame.strata == "TOOLTIP")
+    range.SetLocked(true); assert(not frame:IsShown() and not frame.mouseEnabled and frame.strata == "HIGH")
+    range.SetEnabled(false); assert(state.watches[75] == false and not frame:IsEventRegistered("SPELL_RANGE_CHECK_UPDATE"))
+    checks = state.checks
+    test.emit("SPELL_RANGE_CHECK_UPDATE", 75, true, true); assert(not frame:IsShown() and state.checks == checks)
+    state.ranges[75] = true; range.SetEnabled(true); assert(frame:IsShown() and state.watches[75])
+    state.spells[75].known = false; test.emit("SPELLS_CHANGED")
+    assert(not frame:IsShown() and range.GetSettings().spellID == 75 and not state.watches[75])
+    state.spells[75].known = true; test.emit("SPELLS_CHANGED"); assert(frame:IsShown() and state.watches[75])
+    range.SelectSpell(133); assert(not state.watches[75] and state.watches[133])
+    state.ranges[133] = state.secret; test.emit("PLAYER_TARGET_CHANGED"); assert(not frame:IsShown())
+    range.ClearSpell(); assert(not state.watches[133])
+    assert(frame.scripts.OnUpdate == nil and #test.timers == 0, "Range checks must not poll")
+end
+print("PASS: native range events, initial/target state, white/red/unknown transitions, secrets, unchanged-state redraw avoidance, combat, enable/disable/clear and spellbook revalidation without polling")
+
+-- Native drag, bounded size and coordinates, position recovery, and per-character persistence.
+do
+    local test, state = rangeFixture(); test.login()
+    local range, env = test.addon.RangeIndicator, test.env
+    local frame, settings = env.MinnTinkersWoWFRangeIndicator, range.GetSettings()
+    range.SelectSpell(75); range.SetLocked(false)
+    frame.scripts.OnDragStart(frame); assert(frame.moving and frame.clamped)
+    frame.dragX, frame.dragY = 850, 550
+    frame.scripts.OnDragStop(frame)
+    assert(not frame.moving and settings.x == 250 and settings.y == 150)
+    range.SetLocked(true); frame.scripts.OnDragStart(frame); assert(not frame.moving and not frame.mouseEnabled)
+    range.SetSize(40.4); assert(settings.size == 40 and frame.width == 40 and frame.height == 40 and frame.dot.fontSize == 40)
+    range.SetSize(200); assert(settings.size == 96)
+    range.SetSize(-1); assert(settings.size == 8)
+    settings.x, settings.y = 100000, -100000
+    test.emit("DISPLAY_SIZE_CHANGED"); assert(settings.x == 596 and settings.y == -396)
+    env.UIParent:SetSize(500, 300); test.emit("UI_SCALE_CHANGED")
+    assert(settings.x == 246 and settings.y == -146)
+    test.addon.ToggleOptions()
+    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    env.MinnTinkersWoWFRangeResetPosition.scripts.OnClick()
+    assert(settings.x == 0 and settings.y == -120 and settings.size == 8 and settings.spellID == 75)
+    env.MinnTinkersWoWFRangeSize:SetValue(42); assert(settings.size == 42 and frame.dot.fontSize == 42)
+    local unlock = env.MinnTinkersWoWFRangeUnlocked
+    unlock:SetChecked(true); unlock.scripts.OnClick(unlock); assert(not settings.locked and frame.mouseEnabled)
+    local enable = env.MinnTinkersWoWFRangeEnabled
+    enable:SetChecked(false); enable.scripts.OnClick(enable); assert(not settings.enabled and not frame:IsShown())
+    local reload = rangeFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
+    reload.login()
+    local restored = reload.addon.RangeIndicator.GetSettings()
+    assert(restored.spellID == 75 and restored.size == 42 and restored.x == 0 and restored.y == -120 and not restored.enabled and not restored.locked)
+    local other = rangeFixture(env.MinnTinkersWoWFDB); other.login()
+    assert(other.addon.RangeIndicator.GetSettings().spellID == nil and other.addon.RangeIndicator.GetSettings().size == 24)
+    local repaired = rangeFixture(nil, {rangeIndicator = {size = "bad", x = math.huge, y = 0/0, spellID = 75}, extra = "keep"})
+    repaired.login()
+    assert(repaired.addon.RangeIndicator.GetSettings().size == 24 and repaired.addon.RangeIndicator.GetSettings().x == 0
+        and repaired.addon.RangeIndicator.GetSettings().y == -120 and repaired.env.MinnTinkersWoWFCharDB.extra == "keep")
+    range.SetLocked(false); enable:SetChecked(true); enable.scripts.OnClick(enable)
+    frame.scripts.OnDragStart(frame); assert(frame.moving)
+    range.SetEnabled(false); assert(not frame.moving)
+end
+print("PASS: range drag/lock, resize and bounds, off-screen recovery, reset controls, display changes, per-character reload/alt isolation, saved-data repair and drag cancellation")
+
+-- Opacity changes only presentation, including in combat, and persists per character.
+do
+    local test, state = rangeFixture(nil, {rangeIndicator = {spellID = 75}})
+    state.ranges[75] = true
+    test.login()
+    local env, range = test.env, test.addon.RangeIndicator
+    local frame, settings = env.MinnTinkersWoWFRangeIndicator, range.GetSettings()
+    assert(settings.opacity == 100 and frame.alpha == 1)
+    local checks, subscriptions, writes = state.checks, #state.subscriptions, frame.dot.colorWrites
+    test.combat(true)
+    range.SetOpacity(47.4); assert(settings.opacity == 47 and frame.alpha == 0.47 and frame:IsShown())
+    range.SetOpacity(-1); assert(settings.opacity == 10 and frame.alpha == 0.1)
+    range.SetOpacity(200); assert(settings.opacity == 100 and frame.alpha == 1)
+    test.addon.ToggleOptions()
+    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local slider = env.MinnTinkersWoWFRangeOpacity
+    slider:SetValue(35); assert(settings.opacity == 35 and frame.alpha == 0.35)
+    slider:Refresh(); assert(settings.opacity == 35)
+    assert(state.checks == checks and #state.subscriptions == subscriptions and frame.dot.colorWrites == writes,
+        "Opacity changes must not query range, change tracking or redraw range colors")
+    range.SetEnabled(false); range.SetOpacity(25)
+    assert(not frame:IsShown() and frame.alpha == 0.25)
+    local reload = rangeFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB); reload.login()
+    assert(reload.addon.RangeIndicator.GetSettings().opacity == 25 and reload.env.MinnTinkersWoWFRangeIndicator.alpha == 0.25)
+    local other = rangeFixture(env.MinnTinkersWoWFDB); other.login()
+    assert(other.addon.RangeIndicator.GetSettings().opacity == 100)
+    for _, saved in ipairs({"bad", math.huge, 0/0}) do
+        local repaired = rangeFixture(nil, {rangeIndicator = {opacity = saved}, extra = "keep"}); repaired.login()
+        assert(repaired.addon.RangeIndicator.GetSettings().opacity == 100 and repaired.env.MinnTinkersWoWFCharDB.extra == "keep")
+    end
+    for _, saved in ipairs({-20, 150}) do
+        local repaired = rangeFixture(nil, {rangeIndicator = {opacity = saved}}); repaired.login()
+        assert(repaired.addon.RangeIndicator.GetSettings().opacity == (saved < 10 and 10 or 100))
+    end
+end
+print("PASS: range opacity default/bounds, slider, combat, presentation-only updates, per-character persistence and saved-data repair")

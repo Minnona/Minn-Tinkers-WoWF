@@ -103,7 +103,7 @@ local function CreateOptions()
     window:Hide()
     window:SetSize(
         math.min(1100, math.max(560, tonumber(MinnTinkersWoWFDB.windowWidth) or 700)),
-        math.min(800, math.max(450, tonumber(MinnTinkersWoWFDB.windowHeight) or 480)))
+        math.min(800, math.max(670, tonumber(MinnTinkersWoWFDB.windowHeight) or 670)))
     window:SetPoint("CENTER")
     window:SetFrameStrata("DIALOG")
     window:SetTitle(addon.title)
@@ -119,7 +119,7 @@ local function CreateOptions()
     window:HookScript("OnHide", window.StopMovingOrSizing)
     local resize = CreateFrame("Button", "MinnTinkersWoWFResize", window, "PanelResizeButtonTemplate")
     resize:SetPoint("BOTTOMRIGHT", -3, 3)
-    resize:Init(window, 560, 450, 1100, 800)
+    resize:Init(window, 560, 670, 1100, 800)
     local function SaveSize()
         MinnTinkersWoWFDB.windowWidth, MinnTinkersWoWFDB.windowHeight = window:GetSize()
     end
@@ -272,6 +272,139 @@ local function CreateOptions()
         "Clickable chat URLs", "Highlights web addresses in new chat messages, including bare domains such as discord.gg/invite. Click a link to select its address in a copy window, then press Ctrl+C. Existing WoW links remain intact.",
         function() return MinnTinkersWoWFDB.chatURLs end,
         addon.ChatURLs.SetEnabled, addon.ChatURLs.IsAvailable)
+    CreateSection(pages[2], 354, "Range indicator")
+    local range = addon.RangeIndicator
+    local rangeEnabled = CreateCheck(pages[2], "MinnTinkersWoWFRangeEnabled", 374, false,
+        "Show range indicator", "Shows a white dot when the target is in range of your selected spell, red when out of range. Hides when no valid check is available. This checks range, not cooldowns, resources or line of sight. Settings are saved per character.",
+        function() return range.GetSettings().enabled end, range.SetEnabled, range.IsAvailable)
+    local rangeUnlocked = CreateCheck(pages[2], "MinnTinkersWoWFRangeUnlocked", 374, true,
+        "Unlock position", "Shows a draggable preview even without a target. Drag the circle to move it. Locking makes it click-through. Reset position below brings it back near screen center.",
+        function() return not range.GetSettings().locked end,
+        function(value) range.SetLocked(not value) end, range.IsAvailable)
+    checks[#checks + 1], checks[#checks + 2] = rangeEnabled, rangeUnlocked
+    local spellSlot = CreateFrame("Button", "MinnTinkersWoWFRangeSpellSlot", pages[2], "UIPanelButtonTemplate")
+    spellSlot:SetSize(30, 30)
+    spellSlot:SetPoint("TOPLEFT", 16, -410)
+    spellSlot.icon = spellSlot:CreateTexture(nil, "ARTWORK")
+    spellSlot.icon:SetPoint("TOPLEFT", 3, -3)
+    spellSlot.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    local spellInput = CreateFrame("EditBox", "MinnTinkersWoWFRangeSpellInput", pages[2], "InputBoxTemplate")
+    spellInput:SetAutoFocus(false)
+    spellInput:SetMaxLetters(128)
+    spellInput:SetHeight(24)
+    spellInput:SetPoint("TOPLEFT", 58, -413)
+    spellInput:SetPoint("TOPRIGHT", -160, -413)
+    local selectSpell = CreateFrame("Button", "MinnTinkersWoWFRangeSelectSpell", pages[2], "UIPanelButtonTemplate")
+    selectSpell:SetSize(62, 24)
+    selectSpell:SetPoint("TOPRIGHT", -86, -413)
+    selectSpell:SetText("Select")
+    local clearSpell = CreateFrame("Button", "MinnTinkersWoWFRangeClearSpell", pages[2], "UIPanelButtonTemplate")
+    clearSpell:SetSize(62, 24)
+    clearSpell:SetPoint("TOPRIGHT", -16, -413)
+    clearSpell:SetText("Clear")
+    local rangeStatus = pages[2]:CreateFontString("MinnTinkersWoWFRangeStatus", "OVERLAY", "GameFontHighlightSmall")
+    rangeStatus:SetPoint("TOPLEFT", 18, -444)
+    rangeStatus:SetPoint("TOPRIGHT", -18, -444)
+    rangeStatus:SetJustifyH("LEFT")
+    rangeStatus:SetMaxLines(1)
+    local rangeSize = CreateSlider(pages[2], "MinnTinkersWoWFRangeSize", 466, {
+        label = "Indicator size", min = 8, max = 96, step = 1,
+        getValue = function() return range.GetSettings().size end,
+        setValue = range.SetSize, isAvailable = range.IsAvailable,
+        format = function(value) return string.format("%d", value) end,
+        tooltip = "Resizes the range circle in UI units. Changes apply immediately. Position and size are saved per character.",
+    })
+    local rangeOpacity = CreateSlider(pages[2], "MinnTinkersWoWFRangeOpacity", 500, {
+        label = "Indicator opacity", min = 10, max = 100, step = 1,
+        getValue = function() return range.GetSettings().opacity end,
+        setValue = range.SetOpacity, isAvailable = range.IsAvailable,
+        format = function(value) return string.format("%d%%", value) end,
+        tooltip = "Adjusts the range circle's opacity. Changes apply immediately and are saved per character.",
+    })
+    local resetRange = CreateFrame("Button", "MinnTinkersWoWFRangeResetPosition", pages[2], "UIPanelButtonTemplate")
+    resetRange:SetSize(110, 24)
+    resetRange:SetPoint("TOPLEFT", 18, -538)
+    resetRange:SetText("Reset position")
+    resetRange:SetScript("OnClick", range.ResetPosition)
+    local function RefreshRangeOptions()
+        local available = range.IsAvailable()
+        local info = range.GetSpellInfo()
+        rangeEnabled:Refresh(); rangeUnlocked:Refresh(); rangeSize:Refresh(); rangeOpacity:Refresh()
+        for _, control in ipairs({spellSlot, spellInput, selectSpell, clearSpell, resetRange}) do control:SetEnabled(available) end
+        spellSlot.icon:SetTexture(info and info.iconID or "Interface\\Icons\\INV_Misc_QuestionMark")
+        spellInput:SetText(info and info.name or "")
+        rangeStatus:SetTextColor(1, 1, 1)
+        if not available then
+            rangeStatus:SetText("Range checking is unavailable in this client.")
+        elseif info then
+            rangeStatus:SetText("Selected: " .. info.name)
+        else
+            rangeStatus:SetText("Drop a spell here, or enter its name and press Enter.")
+        end
+    end
+    range.OnSettingsChanged = function()
+        if window:IsShown() and pages[2]:IsShown() then RefreshRangeOptions() end
+    end
+    pages[2]:HookScript("OnShow", RefreshRangeOptions)
+    local function SelectSpellID(id)
+        local success, message = range.SelectSpell(id)
+        if success then
+            RefreshRangeOptions()
+        else
+            rangeStatus:SetText(message)
+            rangeStatus:SetTextColor(1, 0.35, 0.35)
+        end
+        return success
+    end
+    local function SubmitSpell()
+        local matches = range.FindSpells(spellInput:GetText())
+        spellInput:ClearFocus()
+        if #matches == 0 then
+            rangeStatus:SetText("No learned spell with a range check matches that name.")
+            rangeStatus:SetTextColor(1, 0.35, 0.35)
+        elseif #matches == 1 then
+            SelectSpellID(matches[1].spellID)
+        else
+            MenuUtil.CreateContextMenu(spellInput, function(_, menu)
+                menu:CreateTitle("Choose a spell")
+                menu:SetScrollMode(240)
+                for _, info in ipairs(matches) do
+                    local id = info.spellID
+                    local label = info.name .. (info.subName ~= "" and (" (" .. info.subName .. ")") or "")
+                    menu:CreateButton(label, function() SelectSpellID(id) end)
+                end
+            end)
+        end
+    end
+    spellInput:SetScript("OnEnterPressed", SubmitSpell)
+    spellInput:SetScript("OnEscapePressed", spellInput.ClearFocus)
+    selectSpell:SetScript("OnClick", SubmitSpell)
+    clearSpell:SetScript("OnClick", range.ClearSpell)
+    local function ReceiveSpell()
+        local kind, _, _, id = GetCursorInfo()
+        if not canaccessvalue(kind, id) or kind ~= "spell" then
+            rangeStatus:SetText("Drop an ability from your spellbook.")
+            rangeStatus:SetTextColor(1, 0.35, 0.35)
+        elseif SelectSpellID(id) then
+            spellInput:ClearFocus()
+            ClearCursor()
+        end
+    end
+    spellSlot:SetScript("OnReceiveDrag", ReceiveSpell)
+    spellSlot:SetScript("OnClick", ReceiveSpell)
+    spellSlot:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Tracked spell")
+        local info = range.GetSpellInfo()
+        if info then GameTooltip:AddLine(info.name, 1, 1, 1) end
+        GameTooltip:AddLine("Drag a learned spell from the spellbook into this slot. You can also type its name and press Enter.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    local function HideSpellTooltip(self)
+        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+    end
+    spellSlot:HookScript("OnLeave", HideSpellTooltip)
+    spellSlot:HookScript("OnHide", HideSpellTooltip)
     window:SetScript("OnShow", function()
         check:SetChecked(MinnTinkersWoWFDB.fastAutoloot)
         for _, control in ipairs(checks) do control:Refresh() end
@@ -281,6 +414,7 @@ local function CreateOptions()
         camera:Refresh()
         combatOpacity:Refresh()
         combatWidth:Refresh()
+        RefreshRangeOptions()
     end)
 end
 
