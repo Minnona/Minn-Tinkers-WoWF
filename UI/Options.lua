@@ -267,11 +267,15 @@ local function CreateOptions()
         format = function(value) return string.format("%d", value) end,
         tooltip = "Sets the width of the soft edge glow in UI units. The inner edge fades to transparent. Changes apply immediately, including during combat.",
     })
-    CreateSection(pages[2], 298, "Chat")
+    CreateSection(pages[2], 298, "Chat & pet frame")
     checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFChatURLs", 320, false,
         "Clickable chat URLs", "Highlights web addresses in new chat messages, including bare domains such as discord.gg/invite. Click a link to select its address in a copy window, then press Ctrl+C. Existing WoW links remain intact.",
         function() return MinnTinkersWoWFDB.chatURLs end,
         addon.ChatURLs.SetEnabled, addon.ChatURLs.IsAvailable)
+    checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFPetHappiness", 320, true,
+        "Pet happiness bar", "Replaces the hunter pet's happiness face with a thin red/yellow/green meter below its focus bar. The fill shows happiness reserve; the colored thirds are visual guides. Mouseover retains Blizzard's happiness, damage bonus and diet tooltip.",
+        function() return MinnTinkersWoWFDB.petHappinessBar end,
+        addon.PetHappinessBar.SetEnabled, addon.PetHappinessBar.IsAvailable)
     CreateSection(pages[2], 354, "Range indicator")
     local range = addon.RangeIndicator
     local rangeEnabled = CreateCheck(pages[2], "MinnTinkersWoWFRangeEnabled", 374, false,

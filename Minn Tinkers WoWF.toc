@@ -3,7 +3,7 @@
 ## IconTexture: Interface\Icons\Spell_Shaman_Hex
 ## Author: Minnona (Northdale)
 ## Notes: Modular quality-of-life improvements for World of Warcraft: Forever.
-## Version: 1.2
+## Version: 1.3
 ## SavedVariables: MinnTinkersWoWFDB
 ## SavedVariablesPerCharacter: MinnTinkersWoWFCharDB
 
@@ -17,4 +17,5 @@ Modules/AutoSellJunk.lua
 Modules/CombatIndicator.lua
 Modules/ChatURLs.lua
 Modules/RangeIndicator.lua
+Modules/PetHappinessBar.lua
 UI/Options.lua

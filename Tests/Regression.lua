@@ -176,7 +176,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/RangeIndicator.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -1357,3 +1357,330 @@ do
     end
 end
 print("PASS: range opacity default/bounds, slider, combat, presentation-only updates, per-character persistence and saved-data repair")
+
+-- Pet happiness uses native protected-value sinks, clipped fixed color zones and no polling.
+local function petFixture(saved)
+    local test = fixture(saved)
+    local env = test.env
+    local state = {hunter = true, value = 200, maximum = 900, reads = 0, maximumReads = 0, writes = 0, tooltipCalls = 0, borders = {}, atlasReads = 0, outerBackgrounds = 0, masks = {}, zoneBackgrounds = {}, maskReads = 0}
+    local secretMT = {
+        __add = function() error("Secret happiness arithmetic") end,
+        __sub = function() error("Secret happiness arithmetic") end,
+        __mul = function() error("Secret happiness arithmetic") end,
+        __div = function() error("Secret happiness arithmetic") end,
+        __lt = function() error("Secret happiness comparison") end,
+        __le = function() error("Secret happiness comparison") end,
+        __concat = function() error("Secret happiness formatting") end,
+        __tostring = function() error("Secret happiness formatting") end,
+    }
+    state.secretValue, state.secretMaximum = setmetatable({}, secretMT), setmetatable({}, secretMT)
+    env.canaccessvalue = function(...)
+        for index = 1, select("#", ...) do
+            local value = select(index, ...)
+            if rawequal(value, state.secretValue) or rawequal(value, state.secretMaximum) then return false end
+        end
+        return true
+    end
+    env.Enum.PowerType = {Happiness = 27}
+    env.HasPetUI = function() return true, state.hunter end
+    env.UnitPower = function(unit, power)
+        assert(unit == "pet" and power == 27)
+        state.reads = state.reads + 1
+        return state.value
+    end
+    env.UnitPowerMax = function(unit, power)
+        assert(unit == "pet" and power == 27)
+        state.maximumReads = state.maximumReads + 1
+        return state.maximum
+    end
+    local create = env.CreateFrame
+    env.PetFrame = create("Frame")
+    env.PetFrame:Show()
+    local setPetShown = env.PetFrame.SetShown
+    state.setPetShown = function(value) setPetShown(env.PetFrame, value) end
+    env.PetFrameManaBar = create("StatusBar", nil, env.PetFrame)
+    env.PetFrameManaBar:SetSize(74, 7)
+    env.PetFrameTexture = env.PetFrame:CreateTexture()
+    function env.PetFrameTexture:GetRect() return 0, 0, 120, 49 end
+    function env.PetFrameTexture:GetAtlas() return "UI-HUD-UnitFrame-TargetofTarget-PortraitOn" end
+    function env.PetFrameTexture:GetTexture() error("Must use the atlas file and bounds") end
+    function env.PetFrameTexture:GetTexCoord() error("Texture coordinates do not identify atlas sheet bounds") end
+    env.C_Texture = {GetAtlasInfo = function(atlas)
+        if atlas == "UI-HUD-UnitFrame-Party-PortraitOff-Bar-Mana-Mask" then
+            state.maskReads = state.maskReads + 1
+            return state.maskAtlas
+        end
+        assert(atlas == "UI-HUD-UnitFrame-TargetofTarget-PortraitOn")
+        state.atlasReads = state.atlasReads + 1
+        return state.atlas
+    end}
+    state.atlas = {file = 12345, leftTexCoord = 0.1, rightTexCoord = 0.5, topTexCoord = 0.2, bottomTexCoord = 0.6}
+    function env.PetFrameManaBar:GetRect() return 40, 11, 74, 7 end
+    env.PetFrameManaBarMask = env.PetFrameManaBar:CreateTexture()
+    function env.PetFrameManaBarMask:GetAtlas() error("Do not crop the portrait mask") end
+    function env.PetFrameManaBarMask:GetRect() error("Do not read secure mask geometry") end
+    state.maskAtlas = {file = 54321, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1}
+    env.PetFrameHappiness = create("Frame", nil, env.PetFrame)
+    local icon = env.PetFrameHappiness
+    icon.Texture = icon:CreateTexture()
+    icon.Texture:SetAlpha(0.8)
+    function icon.Texture:GetAlpha() return self.alpha end
+    icon.tooltipData = {happiness = 3}
+    function icon:OnEnter()
+        state.tooltipCalls = state.tooltipCalls + 1
+        env.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        env.GameTooltip:SetText("Native happiness, damage bonus and diet")
+        env.GameTooltip:Show()
+    end
+    -- Changing protected native frame visibility must never be part of replacement/restoration.
+    for _, native in ipairs({env.PetFrame, icon}) do
+        native.Show = function() error("Addon changed native pet frame visibility") end
+        native.Hide = native.Show
+        native.SetShown = native.Show
+    end
+    local hooked = env.hooksecurefunc
+    env.hooksecurefunc = function(object, method, handler)
+        assert(object ~= icon, "Happiness replacement must not alter Blizzard's update method")
+        return hooked(object, method, handler)
+    end
+    env.CreateFrame = function(kind, name, parent, template)
+        local f = create(kind, name, parent, template)
+        f.kind, f.parent, f.template = kind, parent, template
+        function f:GetFrameLevel() return 10 end
+        local createTexture = f.CreateTexture
+        local function textureWithMasks(self, ...)
+            local texture = createTexture(self, ...)
+            texture.masks = {}
+            function texture:AddMaskTexture(mask) self.masks[#self.masks + 1] = mask end
+            function texture:SetTexCoord(...) self.coords = {...} end
+            function texture:SetTexture(file, horizontal, vertical)
+                self.texture, self.horizontal, self.vertical = file, horizontal, vertical
+            end
+            function texture:SetAtlas(atlas, useSize, filter, reset, horizontal, vertical)
+                self.atlas, self.useAtlasSize, self.resetTexCoords = atlas, useSize, reset
+                self.horizontal, self.vertical = horizontal, vertical
+            end
+            return texture
+        end
+        function f:CreateMaskTexture(...)
+            local texture = textureWithMasks(self, ...)
+            state.masks[#state.masks + 1] = texture
+            return texture
+        end
+        function f:CreateTexture(textureName, layer, ...)
+            local texture = textureWithMasks(self, textureName, layer, ...)
+            if name ~= "MinnTinkersWoWFPetHappinessBar" and layer == "BACKGROUND" then
+                state.zoneBackgrounds[#state.zoneBackgrounds + 1] = texture
+            end
+            return texture
+        end
+        if name == "MinnTinkersWoWFPetHappinessBar" then
+            local createTexture = f.CreateTexture
+            function f:CreateTexture(textureName, layer, ...)
+                local texture = createTexture(self, textureName, layer, ...)
+                function texture:SetTexCoord(...) self.coords = {...} end
+                if layer == "BORDER" then state.borders[#state.borders + 1] = texture end
+                if layer == "BACKGROUND" then state.outerBackgrounds = state.outerBackgrounds + 1 end
+                texture.layer = layer
+                return texture
+            end
+        end
+        function f:RegisterUnitEvent(event, ...)
+            self:RegisterEvent(event)
+            self.unitEvents = self.unitEvents or {}
+            self.unitEvents[event] = {...}
+        end
+        function f:SetClipsChildren(value) self.clips = value end
+        function f:SetBackdrop() error("Happiness bar must use native trim, not a tooltip backdrop") end
+        function f:SetStatusBarTexture(value)
+            self.barTexture = value
+            self.fillTexture = textureWithMasks(self)
+        end
+        function f:GetStatusBarTexture() return self.fillTexture end
+        function f:SetStatusBarColor(...) self.barColor = {...} end
+        if kind == "StatusBar" then
+            function f:SetMinMaxValues(minimum, maximum)
+                self.minimum, self.maximum = minimum, maximum
+            end
+            function f:SetValue(value)
+                self.value = value
+                state.writes = state.writes + 1
+            end
+        end
+        return f
+    end
+    return test, state
+end
+
+do
+    local test, state = petFixture({extra = "keep"})
+    state.value, state.maximum = state.secretValue, state.secretMaximum
+    test.combat(true); test.login()
+    local env, module = test.env, test.addon.PetHappinessBar
+    local frame, icon = env.MinnTinkersWoWFPetHappinessBar, env.PetFrameHappiness
+    assert(module.IsAvailable() and env.MinnTinkersWoWFDB.petHappinessBar and env.MinnTinkersWoWFDB.extra == "keep")
+    assert(frame.alpha == 1 and icon.Texture.alpha == 0 and frame.parent == env.PetFrame)
+    assert(frame.height == 11 and frame.template == nil and frame.backdrop == nil)
+    assert(#state.borders == 3 and state.outerBackgrounds == 0, "Transparent corners need no outer rectangular background")
+    local capRight = 0.1 + 0.4 * 118 / 120
+    local capLeft = capRight - 0.4 * 8 / 120
+    local top, bottom = 0.2 + 0.4 * 29 / 49, 0.2 + 0.4 * 42 / 49
+    local expectedCoords = {{capRight, capLeft, top, bottom},
+        {capLeft - 0.4 * 4 / 120, capLeft, top, bottom}, {capLeft, capRight, top, bottom}}
+    for index, border in ipairs(state.borders) do
+        assert(border.texture == 12345 and border.alpha == 1 and border.layer == "BORDER")
+        for coord, value in ipairs(expectedCoords[index]) do assert(math.abs(border.coords[coord] - value) < 0.000001) end
+    end
+    assert(state.borders[1].width == 8 and state.borders[3].width == 8)
+    assert(state.borders[1].point[4] == -2 and state.borders[1].point[5] == -2)
+    assert(state.borders[3].point[4] == 2 and state.borders[3].point[5] == -2)
+    assert(frame.point[2] == env.PetFrameManaBar and frame.point[3] == "BOTTOMRIGHT" and frame.point[5] == -2)
+    assert(#state.masks == 1 and #state.zoneBackgrounds == 3)
+    local mask = state.masks[1]
+    assert(mask.atlas == "UI-HUD-UnitFrame-Party-PortraitOff-Bar-Mana-Mask" and mask.useAtlasSize == false)
+    assert(mask.resetTexCoords and mask.coords == nil, "Use the full mask canvas without UV cropping")
+    local function checkMaskGeometry(innerWidth)
+        -- Model the native 84x7 alpha window in its 128x16 canvas, independently of texture UVs.
+        local visibleWidth = 84 / 128 * mask.width
+        local visibleHeight = 7 / 16 * mask.height
+        local visibleLeft = mask.point[4] + 21 / 128 * mask.width
+        local visibleTop = mask.point[5] - 5 / 16 * mask.height
+        assert(math.abs(visibleWidth - innerWidth) < 0.000001 and math.abs(visibleHeight - 7) < 0.000001,
+            "Native mask alpha window must span the full interior")
+        assert(math.abs(visibleLeft - 2) < 0.000001 and math.abs(visibleTop + 2) < 0.000001,
+            "Native mask alpha window must align with the fill")
+    end
+    checkMaskGeometry(frame:GetWidth() - 4)
+    frame.width = 74; frame.scripts.OnSizeChanged(frame, 74, 11); checkMaskGeometry(70)
+    frame.width = 100; frame.scripts.OnSizeChanged(frame, 100, 11); checkMaskGeometry(96)
+    assert(mask.horizontal == "CLAMPTOBLACKADDITIVE" and mask.vertical == "CLAMPTOBLACKADDITIVE")
+    assert(mask.point[2] == frame and mask.point[5] == 3)
+    local colors = {{0.9, 0.15, 0.1}, {1, 0.72, 0.08}, {0.15, 0.8, 0.25}}
+    for index = 1, 3 do
+        local fill = env["MinnTinkersWoWFPetHappinessFill" .. index]
+        assert(fill.parent.clips and fill.height == 7)
+        assert(#fill.fillTexture.masks == 1 and #state.zoneBackgrounds[index].masks == 1)
+        for maskIndex, mask in ipairs(state.masks) do
+            assert(fill.fillTexture.masks[maskIndex] == mask and state.zoneBackgrounds[index].masks[maskIndex] == mask)
+        end
+        assert(fill.barTexture == "Interface\\TargetingFrame\\UI-StatusBar")
+        assert(table.concat(fill.barColor, ",") == table.concat(colors[index], ","))
+        assert(fill.minimum == 0 and rawequal(fill.maximum, state.secretMaximum) and rawequal(fill.value, state.secretValue))
+    end
+    local atlasReads = state.atlasReads
+    assert(state.reads == 1 and state.maximumReads == 1 and state.writes == 3)
+    module.Initialize(); assert(state.reads == 1 and state.writes == 3)
+    assert(frame.unitEvents.UNIT_POWER_UPDATE[1] == "pet" and frame.unitEvents.UNIT_PET[1] == "player")
+    for _ = 1, 1000 do test.emit("UNIT_POWER_UPDATE", "pet", "FOCUS") end
+    test.emit("UNIT_POWER_UPDATE", "player", "HAPPINESS")
+    test.emit("UNIT_POWER_UPDATE", state.secretValue, "HAPPINESS")
+    test.emit("UNIT_POWER_UPDATE", "pet", state.secretValue)
+    test.emit("UNIT_HAPPINESS", "player"); test.emit("UNIT_PET", "party1")
+    assert(state.reads == 1 and state.maximumReads == 1 and state.writes == 3, "Unrelated power/unit events must not query or redraw happiness")
+    test.emit("UNIT_POWER_UPDATE", "pet", "HAPPINESS")
+    assert(state.reads == 2 and state.writes == 6 and state.atlasReads == atlasReads and state.maskReads == 1, "Happiness updates must not rebuild border or mask art")
+    test.emit("UNIT_MAXPOWER", "pet", "HAPPINESS")
+    test.emit("UNIT_HAPPINESS", "pet")
+    test.emit("PET_UI_UPDATE"); test.emit("PLAYER_ENTERING_WORLD"); test.emit("UNIT_PET", "player")
+    assert(state.reads == 7 and state.writes == 21)
+    frame.scripts.OnEnter(frame)
+    assert(state.tooltipCalls == 1 and env.GameTooltip:IsOwned(icon) and env.GameTooltip:IsShown())
+    frame.scripts.OnLeave(frame); assert(not env.GameTooltip:IsShown())
+    frame.scripts.OnEnter(frame); frame.scripts.OnHide(frame); assert(not env.GameTooltip:IsShown())
+    icon.tooltipData = nil; frame.scripts.OnEnter(frame); assert(state.tooltipCalls == 2)
+    icon.tooltipData = {}
+    frame.scripts.OnEnter(frame)
+    module.SetEnabled(false)
+    assert(frame.alpha == 0 and icon.Texture.alpha == 0.8 and not env.GameTooltip:IsShown())
+    assert(next(frame.events) == nil and not env.MinnTinkersWoWFDB.petHappinessBar)
+    local reads = state.reads
+    test.emit("UNIT_POWER_UPDATE", "pet", "HAPPINESS"); test.emit("UNIT_PET", "player")
+    state.setPetShown(false); state.setPetShown(true)
+    frame.scripts.OnEnter(frame)
+    assert(state.reads == reads and state.tooltipCalls == 3)
+    module.SetEnabled(true); assert(frame.alpha == 1 and icon.Texture.alpha == 0)
+    assert(frame.scripts.OnUpdate == nil and #test.timers == 0, "Pet happiness must not poll")
+end
+print("PASS: protected happiness values passed directly to native bars, three fixed color zones, pet-only event filtering, tooltip reuse, combat, enable/disable and native icon restoration without polling")
+
+do
+    local test, state = petFixture(); test.login()
+    local env, module = test.env, test.addon.PetHappinessBar
+    local frame, icon = env.MinnTinkersWoWFPetHappinessBar, env.PetFrameHappiness
+    local function geometry(width)
+        frame.width = width
+        frame.scripts.OnSizeChanged(frame, width, 11)
+        local inner = width - 4
+        for index = 1, 3 do
+            local fill = env["MinnTinkersWoWFPetHappinessFill" .. index]
+            assert(fill.width == inner and fill.height == 7)
+            assert(fill.parent.width == inner / 3 - (index < 3 and 1 or 0))
+            assert(fill.parent.point[4] == 2 + (index - 1) * inner / 3)
+            assert(fill.point[4] == -(index - 1) * inner / 3)
+        end
+    end
+    geometry(74); geometry(100)
+    frame.scripts.OnSizeChanged(frame, state.secretValue, 10)
+    frame.scripts.OnSizeChanged(frame, 0, 10)
+    assert(env.MinnTinkersWoWFPetHappinessFill1.width == 96)
+    local originalRect = env.PetFrameTexture.GetRect
+    env.PetFrameTexture.GetRect = function() return state.secretValue, 0, 120, 49 end
+    geometry(74); assert(state.borders[1].alpha == 0)
+    env.PetFrameTexture.GetRect = function() end
+    geometry(74); assert(state.borders[1].alpha == 0)
+    env.PetFrameTexture.GetRect = originalRect
+    geometry(74); assert(state.borders[1].alpha == 1 and state.borders[1].texture == 12345)
+    local atlas = state.atlas
+    state.atlas = nil; geometry(74)
+    for _, border in ipairs(state.borders) do assert(border.alpha == 0) end
+    state.atlas = atlas; geometry(74)
+    atlas.leftTexCoord = state.secretValue; geometry(74)
+    for _, border in ipairs(state.borders) do assert(border.alpha == 0) end
+    atlas.leftTexCoord = 0.1; geometry(74)
+    for _, border in ipairs(state.borders) do assert(border.alpha == 1) end
+    assert(state.maskReads == 1, "Resize and pet display changes must not recrop masks")
+    state.value = 800; test.emit("UNIT_POWER_UPDATE", "pet", "HAPPINESS")
+    assert(env.MinnTinkersWoWFPetHappinessFill3.value == 800)
+    state.hunter = false; test.emit("UNIT_PET", "player")
+    assert(frame.alpha == 0 and icon.Texture.alpha == 0.8)
+    local reads = state.reads
+    test.emit("PET_UI_UPDATE"); assert(state.reads == reads)
+    state.hunter = true; state.maximum = 0; test.emit("UNIT_PET", "player")
+    assert(frame.alpha == 0 and state.reads == reads)
+    state.maximum = 900; test.emit("UNIT_HAPPINESS", "pet")
+    assert(frame.alpha == 1 and icon.Texture.alpha == 0)
+    state.setPetShown(false); test.emit("UNIT_HAPPINESS", "pet")
+    assert(frame.alpha == 0 and icon.Texture.alpha == 0.8)
+    reads = state.reads; state.setPetShown(true)
+    assert(frame.alpha == 1 and state.reads == reads + 1)
+    state.hunter = state.secretValue; test.emit("PET_UI_UPDATE")
+    assert(frame.alpha == 0 and icon.Texture.alpha == 0.8)
+    state.hunter = true; state.value = nil; test.emit("PET_UI_UPDATE"); assert(frame.alpha == 0)
+    state.value = 200; test.emit("PET_UI_UPDATE"); assert(frame.alpha == 1)
+    test.addon.ToggleOptions()
+    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local check = env.MinnTinkersWoWFPetHappiness
+    assert(check.enabled and check.checked)
+    check:SetChecked(false); check.scripts.OnClick(check)
+    assert(not env.MinnTinkersWoWFDB.petHappinessBar and frame.alpha == 0 and icon.Texture.alpha == 0.8)
+    check:SetChecked(true); check.scripts.OnClick(check)
+    assert(env.MinnTinkersWoWFDB.petHappinessBar and frame.alpha == 1)
+    module.SetEnabled(false)
+    local reload = petFixture(env.MinnTinkersWoWFDB); reload.login()
+    assert(not reload.env.MinnTinkersWoWFDB.petHappinessBar and reload.env.MinnTinkersWoWFPetHappinessBar.alpha == 0
+        and reload.env.PetFrameHappiness.Texture.alpha == 0.8)
+    local nonHunter, nonHunterState = petFixture(); nonHunterState.hunter = false; nonHunter.login()
+    assert(nonHunter.env.MinnTinkersWoWFPetHappinessBar.alpha == 0 and nonHunterState.reads == 0)
+    local missingMask, missingMaskState = petFixture()
+    missingMaskState.maskAtlas = nil
+    missingMask.login()
+    assert(#missingMaskState.masks == 0 and missingMask.env.MinnTinkersWoWFPetHappinessBar.alpha == 1)
+    for index = 1, 3 do
+        local fill = missingMask.env["MinnTinkersWoWFPetHappinessFill" .. index]
+        assert(fill.value == 200 and #fill.fillTexture.masks == 0 and #missingMaskState.zoneBackgrounds[index].masks == 0,
+            "An unavailable mask must not hide the fill or dim zones")
+    end
+    local unavailable = fixture(); unavailable.login(); unavailable.addon.ToggleOptions()
+    assert(not unavailable.addon.PetHappinessBar.IsAvailable() and unavailable.env.MinnTinkersWoWFPetHappiness.enabled == false)
+end
+print("PASS: happiness bar anchoring/resizing, pet replacement/dismissal, hidden pet frame, non-hunters, unavailable/invalid values, UI toggle and reload persistence")

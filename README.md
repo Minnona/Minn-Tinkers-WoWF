@@ -13,6 +13,7 @@ Quality-of-life settings for **World of Warcraft: Forever**.
 - **Combat indicator:** persistent red edge glow with adjustable opacity and width.
 - **Chat URLs:** click web addresses, including `discord.gg/invite`, to open a copy popup; press **Ctrl+C**.
 - **Range indicator:** movable target range dot with adjustable size and opacity; select a spell by name or drop it from the spellbook. Includes position reset and per-character settings.
+- **Pet happiness:** hunter pet happiness reserve shown as a thin red/yellow/green bar below focus, with native trim and tooltip. Toggle it in the UI tab.
 
 Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers WoWF`. Open settings with **`/minn`** or the frog minimap button.
 

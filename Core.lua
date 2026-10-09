@@ -59,6 +59,9 @@ startup:SetScript("OnEvent", function(self, event, name)
         if MinnTinkersWoWFDB.chatURLs == nil then
             MinnTinkersWoWFDB.chatURLs = true
         end
+        if MinnTinkersWoWFDB.petHappinessBar == nil then
+            MinnTinkersWoWFDB.petHappinessBar = true
+        end
         MinnTinkersWoWFDB.popupProtection = nil
         self:UnregisterEvent(event)
     elseif event == "PLAYER_LOGIN" then
@@ -72,6 +75,7 @@ startup:SetScript("OnEvent", function(self, event, name)
         addon.CombatIndicator.Initialize()
         addon.ChatURLs.Initialize()
         addon.RangeIndicator.Initialize()
+        addon.PetHappinessBar.Initialize()
         addon.InitializeMinimapButton()
     end
 end)
