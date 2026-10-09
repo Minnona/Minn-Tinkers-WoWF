@@ -1289,6 +1289,51 @@ do
 end
 print("PASS: native range events, initial/target state, white/red/unknown transitions, secrets, unchanged-state redraw avoidance, combat, enable/disable/clear and spellbook revalidation without polling")
 
+-- Derive color from the player's class once; presentation changes never query range.
+do
+    local classes = {"WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID"}
+    for index, class in ipairs(classes) do
+        local test, state = rangeFixture(nil, {rangeIndicator = {spellID = 75}})
+        local lookups = 0
+        test.env.UnitClass = function(unit) assert(unit == "player"); return class, class end
+        test.env.C_ClassColor = {GetClassColor = function(token)
+            assert(token == class); lookups = lookups + 1
+            return {GetRGB = function() return index / 10, 0.4, 0.6 end}
+        end}
+        state.ranges[75] = true; test.login(); test.addon.ToggleOptions()
+        local range, frame = test.addon.RangeIndicator, test.env.MinnTinkersWoWFRangeIndicator
+        assert(not range.GetSettings().useClassColor and frame.dot.color[1] == 1)
+        local checks, subscriptions = state.checks, #state.subscriptions
+        local control = test.env.MinnTinkersWoWFRangeClassColor
+        control:SetChecked(true); control.scripts.OnClick(control)
+        assert(range.GetSettings().useClassColor and frame.dot.color[1] == index / 10)
+        assert(frame.dot.color[2] == 0.4 and frame.dot.color[3] == 0.6)
+        test.combat(true)
+        test.emit("SPELL_RANGE_CHECK_UPDATE", 75, false, true)
+        range.SetClassColor(false); range.SetClassColor(true)
+        assert(frame.dot.color[1] == 1 and frame.dot.color[2] == 0.15)
+        test.emit("SPELL_RANGE_CHECK_UPDATE", 75, true, true)
+        assert(frame.dot.color[1] == index / 10)
+        range.SetClassColor(false); assert(frame.dot.color[1] == 1 and frame.dot.color[2] == 1)
+        range.SetClassColor(true)
+        test.emit("SPELL_RANGE_CHECK_UPDATE", 75, nil, false); range.SetLocked(false)
+        assert(frame.dot.color[1] == 0.65)
+        assert(state.checks == checks and #state.subscriptions == subscriptions and lookups == 1)
+        local reload, reloadedState = rangeFixture(test.env.MinnTinkersWoWFDB, test.env.MinnTinkersWoWFCharDB)
+        reload.env.C_ClassColor = {GetClassColor = function(token)
+            assert(token == "HUNTER"); return {GetRGB = function() return 0.2, 0.7, 0.3 end}
+        end}
+        reloadedState.ranges[75] = true; reload.login()
+        assert(reload.addon.RangeIndicator.GetSettings().useClassColor and reload.env.MinnTinkersWoWFRangeIndicator.dot.color[1] == 0.2)
+        local other = rangeFixture(test.env.MinnTinkersWoWFDB); other.login()
+        assert(not other.addon.RangeIndicator.GetSettings().useClassColor)
+    end
+    local fallback, state = rangeFixture(nil, {rangeIndicator = {spellID = 75, useClassColor = true}})
+    state.ranges[75] = true; fallback.login()
+    assert(fallback.env.MinnTinkersWoWFRangeIndicator.dot.color[1] == 1)
+end
+print("PASS: native player-class colors, white default, independent per-character persistence, combat/red/unknown states and presentation-only toggles without extra range calls")
+
 -- Native drag, bounded size and coordinates, position recovery, and per-character persistence.
 do
     local test, state = rangeFixture(); test.login()

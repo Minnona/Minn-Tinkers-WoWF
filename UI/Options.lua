@@ -294,7 +294,7 @@ local function CreateOptions()
     local rangeY = CreateSection(pages[2], y, "Range indicator")
     local range = addon.RangeIndicator
     local rangeEnabled = CreateCheck(pages[2], "MinnTinkersWoWFRangeEnabled", rangeY, false,
-        "Show range indicator", "Shows a white dot when the target is in range of your selected spell, red when out of range. Hides when no valid check is available. This checks range, not cooldowns, resources or line of sight. Settings are saved per character.",
+        "Show range indicator", "Shows a white or class-colored dot when the target is in range of your selected spell, red when out of range. Hides when no valid check is available. This checks range, not cooldowns, resources or line of sight. Settings are saved per character.",
         function() return range.GetSettings().enabled end, range.SetEnabled, range.IsAvailable)
     local rangeUnlocked = CreateCheck(pages[2], "MinnTinkersWoWFRangeUnlocked", rangeY, true,
         "Unlock position", "Shows a draggable preview even without a target. Drag the circle to move it. Locking makes it click-through. Reset position below brings it back near screen center.",
@@ -344,6 +344,10 @@ local function CreateOptions()
         format = function(value) return string.format("%d%%", value) end,
         tooltip = "Adjusts the range circle's opacity. Changes apply immediately and are saved per character.",
     })
+    local rangeClassColor = CreateCheck(pages[2], "MinnTinkersWoWFRangeClassColor", rangeY + rowSpacing * 5, true,
+        "Use class color", "Uses Blizzard's color for your character's class when in range. Turn off to use white. Out-of-range remains red. Saved per character.",
+        function() return range.GetSettings().useClassColor end, range.SetClassColor, range.IsAvailable)
+    checks[#checks + 1] = rangeClassColor
     local resetRange = CreateFrame("Button", "MinnTinkersWoWFRangeResetPosition", pages[2], "UIPanelButtonTemplate")
     resetRange:SetSize(120, rowHeight)
     IncreaseFont(resetRange:GetFontString())
@@ -353,7 +357,7 @@ local function CreateOptions()
     local function RefreshRangeOptions()
         local available = range.IsAvailable()
         local info = range.GetSpellInfo()
-        rangeEnabled:Refresh(); rangeUnlocked:Refresh(); rangeSize:Refresh(); rangeOpacity:Refresh()
+        rangeEnabled:Refresh(); rangeUnlocked:Refresh(); rangeSize:Refresh(); rangeOpacity:Refresh(); rangeClassColor:Refresh()
         for _, control in ipairs({spellSlot, spellInput, selectSpell, clearSpell, resetRange}) do control:SetEnabled(available) end
         spellSlot.icon:SetTexture(info and info.iconID or "Interface\\Icons\\INV_Misc_QuestionMark")
         spellInput:SetText(info and info.name or "")

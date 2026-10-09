@@ -3,6 +3,7 @@ local module = {}
 addon.RangeIndicator = module
 local indicator, circle, activeSpell, inRange
 local initialized = false
+local classR, classG, classB = 1, 1, 1
 
 function module.GetSettings()
     return MinnTinkersWoWFCharDB.rangeIndicator
@@ -34,7 +35,11 @@ local function RefreshDisplay()
     if inRange == nil then
         circle:SetTextColor(0.65, 0.65, 0.65)
     elseif inRange then
-        circle:SetTextColor(1, 1, 1)
+        if settings.useClassColor then
+            circle:SetTextColor(classR, classG, classB)
+        else
+            circle:SetTextColor(1, 1, 1)
+        end
     else
         circle:SetTextColor(1, 0.15, 0.15)
     end
@@ -178,6 +183,12 @@ function module.SetOpacity(value)
     NotifySettings()
 end
 
+function module.SetClassColor(value)
+    module.GetSettings().useClassColor = value and true or false
+    if initialized then RefreshDisplay() end
+    NotifySettings()
+end
+
 function module.ResetPosition()
     local settings = module.GetSettings()
     settings.x, settings.y = 0, -120
@@ -191,7 +202,7 @@ end
 function module.Initialize()
     if initialized then return end
     local settings = module.GetSettings()
-    for key, value in pairs({enabled = true, locked = true, size = 24, opacity = 100, x = 0, y = -120}) do
+    for key, value in pairs({enabled = true, locked = true, useClassColor = false, size = 24, opacity = 100, x = 0, y = -120}) do
         if settings[key] == nil then settings[key] = value end
     end
     for key, fallback in pairs({size = 24, opacity = 100, x = 0, y = -120}) do
@@ -206,6 +217,17 @@ function module.Initialize()
         and C_SpellBook.GetSpellBookItemInfo and Enum.SpellBookSpellBank and Enum.SpellBookItemType
         and type(canaccessvalue) == "function" and GetCursorInfo and ClearCursor
         and MenuUtil and MenuUtil.CreateContextMenu) then return end
+    settings.useClassColor = settings.useClassColor == true
+    if C_ClassColor and C_ClassColor.GetClassColor then
+        local _, class = UnitClass("player")
+        if canaccessvalue(class) and class then
+            local color = C_ClassColor.GetClassColor(class)
+            if color then
+                local r, g, b = color:GetRGB()
+                if canaccessvalue(r, g, b) then classR, classG, classB = r, g, b end
+            end
+        end
+    end
     indicator = CreateFrame("Frame", "MinnTinkersWoWFRangeIndicator", UIParent)
     indicator:Hide()
     indicator:SetFrameStrata("HIGH")
