@@ -59,6 +59,10 @@ startup:SetScript("OnEvent", function(self, event, name)
         if MinnTinkersWoWFDB.chatURLs == nil then
             MinnTinkersWoWFDB.chatURLs = true
         end
+        if type(MinnTinkersWoWFDB.chat) ~= "table" then MinnTinkersWoWFDB.chat = {} end
+        for key, value in pairs({preserveDraft = true, arrowHistory = true, copyChat = true, unreadMarker = true}) do
+            if MinnTinkersWoWFDB.chat[key] == nil then MinnTinkersWoWFDB.chat[key] = value end
+        end
         if MinnTinkersWoWFDB.petHappinessBar == nil then
             MinnTinkersWoWFDB.petHappinessBar = true
         end
@@ -74,6 +78,8 @@ startup:SetScript("OnEvent", function(self, event, name)
         addon.AutoSellJunk.Initialize()
         addon.CombatIndicator.Initialize()
         addon.ChatURLs.Initialize()
+        addon.ChatInput.Initialize()
+        addon.ChatTools.Initialize()
         addon.RangeIndicator.Initialize()
         addon.PetHappinessBar.Initialize()
         addon.InitializeMinimapButton()

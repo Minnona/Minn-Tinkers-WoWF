@@ -1,5 +1,5 @@
 local _, addon = ...
-local module = { min = 1, max = 2.6 }
+local module = { min = 1, max = 4.0 }
 addon.CameraDistance = module
 local cvar = "cameraDistanceMaxZoomFactor"
 

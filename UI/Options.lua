@@ -1,21 +1,29 @@
 local _, addon = ...
 local window
+local rowHeight, rowSpacing, sectionGap = 26, 32, 24
+
+local function IncreaseFont(text)
+    local font, size, flags = text:GetFont()
+    text:SetFont(font, size + 1, flags)
+end
 
 local function CreateSlider(page, name, y, option)
     local row = CreateFrame("Frame", nil, page)
-    row:SetHeight(32)
+    row:SetHeight(rowHeight)
     row:SetPoint("TOPLEFT", 12, -y)
     row:SetPoint("TOPRIGHT", -12, -y)
     local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("LEFT", 4, 0)
-    label:SetWidth(130)
+    label:SetWidth(148)
     label:SetJustifyH("LEFT")
+    IncreaseFont(label)
     label:SetText(option.label)
     local valueText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    IncreaseFont(valueText)
     valueText:SetPoint("RIGHT", -4, 0)
     local slider = CreateFrame("Slider", name, row, "MinimalSliderTemplate")
-    slider:SetPoint("TOPLEFT", 144, -7)
-    slider:SetPoint("TOPRIGHT", -98, -7)
+    slider:SetPoint("TOPLEFT", 162, -4)
+    slider:SetPoint("TOPRIGHT", -98, -4)
     slider:SetHeight(19)
     slider:SetMinMaxValues(option.min, option.max)
     slider:SetValueStep(option.step)
@@ -58,12 +66,14 @@ end
 local function CreateSection(page, y, title)
     local heading = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     heading:SetPoint("TOPLEFT", 16, -y)
+    IncreaseFont(heading)
     heading:SetText(title)
     local line = page:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(0.65, 0.55, 0.3, 0.45)
     line:SetHeight(1)
     line:SetPoint("LEFT", heading, "RIGHT", 8, 0)
     line:SetPoint("RIGHT", page, "RIGHT", -16, 0)
+    return y + 24
 end
 
 local function CreateCheck(page, name, y, rightColumn, label, tooltip, getValue, setValue, isAvailable)
@@ -73,7 +83,8 @@ local function CreateCheck(page, name, y, rightColumn, label, tooltip, getValue,
     else
         check:SetPoint("TOPLEFT", 12, -y)
     end
-    check:SetSize(26, 26)
+    check:SetSize(rowHeight, rowHeight)
+    IncreaseFont(check.Text)
     check.Text:SetText(label)
     check:SetHitRectInsets(0, -check.Text:GetStringWidth() - 4, 0, 0)
     check:SetScript("OnClick", function(self) setValue(self:GetChecked()) end)
@@ -131,7 +142,7 @@ local function CreateOptions()
     table.insert(UISpecialFrames, window:GetName())
 
     local pages = {}
-    local categories = { "Universal", "UI" }
+    local categories = { "Universal", "UI", "Chat" }
     local function SelectTab(id)
         MinnTinkersWoWFDB.lastTab = categories[id]
         PanelTemplates_SetTab(window, id)
@@ -145,6 +156,7 @@ local function CreateOptions()
         pages[id] = page
         local tab = CreateFrame("Button", "MinnTinkersWoWFOptionsTab" .. id, window, "PanelTabButtonTemplate")
         tab:SetID(id)
+        IncreaseFont(tab:GetFontString())
         tab:SetText(title)
         if id == 1 then
             tab:SetPoint("TOPLEFT", window, "BOTTOMLEFT", 12, 2)
@@ -160,11 +172,12 @@ local function CreateOptions()
     end
     SelectTab(selected)
 
-    CreateSection(pages[1], 16, "Looting")
+    local y = CreateSection(pages[1], 16, "Looting")
 
     local check = CreateFrame("CheckButton", "MinnTinkersWoWFFastAutoloot", pages[1], "UICheckButtonTemplate")
-    check:SetPoint("TOPLEFT", 12, -34)
-    check:SetSize(26, 26)
+    check:SetPoint("TOPLEFT", 12, -y)
+    check:SetSize(rowHeight, rowHeight)
+    IncreaseFont(check.Text)
     check.Text:SetText("Fast autoloot")
     check:SetHitRectInsets(0, -check.Text:GetStringWidth() - 4, 0, 0)
     check:SetScript("OnClick", function(self)
@@ -187,8 +200,8 @@ local function CreateOptions()
         end
     end)
 
-    CreateSection(pages[1], 76, "Camera")
-    local camera = CreateSlider(pages[1], "MinnTinkersWoWFCameraDistance", 96, {
+    y = CreateSection(pages[1], y + rowHeight + sectionGap, "Camera")
+    local camera = CreateSlider(pages[1], "MinnTinkersWoWFCameraDistance", y, {
         label = "Max camera distance",
         min = addon.CameraDistance.min, max = addon.CameraDistance.max, step = 0.1,
         getValue = addon.CameraDistance.GetFactor,
@@ -197,11 +210,11 @@ local function CreateOptions()
         format = function(value)
             return string.format("%.1f", value)
         end,
-        tooltip = "Sets the maximum zoom-out limit. Stock settings stop at 2.0; this slider allows up to 2.6, subject to the client's limit. Use the mouse wheel to zoom out. The current zoom is not changed automatically.",
+        tooltip = "Sets the maximum zoom-out limit. Stock settings stop at 2.0; this slider allows up to 4.0, subject to the client's limit. Use the mouse wheel to zoom out. The current zoom is not changed automatically.",
     })
 
     local checks = {}
-    CreateSection(pages[1], 148, "Questing")
+    y = CreateSection(pages[1], y + rowHeight + sectionGap, "Questing")
     for index, option in ipairs({
         { key = "autoAccept", label = "Auto accept", tooltip = "Accepts available quests. Skips unlimited repeatable turn-ins, such as cloth donations; daily and weekly quests remain eligible. Hold Shift to handle the conversation manually." },
         { key = "autoTurnIn", label = "Auto turn in", tooltip = "Completes finished quests with zero or one reward choice, including fixed rewards, excluding unlimited repeatable turn-ins. Two or more choices require your click to complete. Hold Shift to bypass." },
@@ -209,31 +222,32 @@ local function CreateOptions()
     }) do
         local key = option.key
         checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFQuest_" .. key,
-            index == 3 and 198 or 172, index == 2, option.label, option.tooltip,
+            index == 3 and y + rowSpacing or y, index == 2, option.label, option.tooltip,
             function() return MinnTinkersWoWFDB.questing[key] end,
             function(value) addon.Questing.SetOption(key, value) end, addon.Questing.IsAvailable)
     end
     local shiftNote = pages[1]:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    shiftNote:SetPoint("TOPLEFT", 18, -230)
+    IncreaseFont(shiftNote)
+    shiftNote:SetPoint("TOPLEFT", 16, -(y + rowSpacing * 2 + 6))
     shiftNote:SetText("Hold Shift to handle quests manually.")
 
-    CreateSection(pages[1], 258, "NPC interaction")
-    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFGossipSkip", 280, false,
+    y = CreateSection(pages[1], y + rowSpacing * 2 + rowHeight + sectionGap, "NPC interaction")
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFGossipSkip", y, false,
         "Skip single-option gossip", "Automatically selects an NPC's only available dialogue option when no quests are listed. Multiple options, locked choices and normal confirmations remain manual. Hold Shift to read the dialogue instead.",
         function() return MinnTinkersWoWFDB.skipSingleGossip end,
         addon.GossipSkip.SetEnabled, addon.GossipSkip.IsAvailable)
 
-    local junkCheck = CreateCheck(pages[1], "MinnTinkersWoWFAutoSellJunk", 280, true,
+    local junkCheck = CreateCheck(pages[1], "MinnTinkersWoWFAutoSellJunk", y, true,
         "Auto sell junk", "Sells poor-quality items with vendor value from carried bags, respecting bags excluded from junk selling. Temporarily locked or uncached items retry on events for up to three seconds. Hold Shift when opening the vendor to bypass. Enabling applies on the next visit; disabling stops pending work.",
         function() return MinnTinkersWoWFDB.autoSellJunk end,
         addon.AutoSellJunk.SetEnabled, addon.AutoSellJunk.IsAvailable)
     checks[#checks + 1] = junkCheck
 
-    CreateSection(pages[2], 16, "Action-bar text")
+    y = CreateSection(pages[2], 16, "Action-bar text")
     local sliders = {}
     for index, option in ipairs(addon.ActionBarFonts.options) do
         local key = option.key
-        local slider = CreateSlider(pages[2], "MinnTinkersWoWFFont_" .. key, 40 + (index - 1) * 34, {
+        local slider = CreateSlider(pages[2], "MinnTinkersWoWFFont_" .. key, y + (index - 1) * rowSpacing, {
             label = option.label, min = 0, max = 12, step = 1,
             getValue = function() return addon.ActionBarFonts.GetIncrease(key) end,
             isAvailable = addon.ActionBarFonts.IsAvailable,
@@ -248,77 +262,82 @@ local function CreateOptions()
         })
         sliders[key] = slider
     end
-    CreateSection(pages[2], 158, "Combat indicator")
-    checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFCombat_enabled", 180, false,
+    y = CreateSection(pages[2], y + (#addon.ActionBarFonts.options - 1) * rowSpacing + rowHeight + sectionGap, "Combat indicator")
+    checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFCombat_enabled", y, false,
         "Persistent red edge glow", "Shows a soft red glow along the screen edges while in combat. Keeps the center clear and does not intercept clicks. Blizzard's low-health warning remains independent.",
         function() return MinnTinkersWoWFDB.combatIndicator.enabled end,
         function(value) addon.CombatIndicator.SetOption("enabled", value) end)
-    local combatOpacity = CreateSlider(pages[2], "MinnTinkersWoWFCombat_opacity", 212, {
+    local combatOpacity = CreateSlider(pages[2], "MinnTinkersWoWFCombat_opacity", y + rowSpacing, {
         label = "Opacity", min = 5, max = 60, step = 1,
         getValue = addon.CombatIndicator.GetOpacity,
         setValue = function(value) addon.CombatIndicator.SetOption("opacity", value) end,
         format = function(value) return string.format("%d%%", value) end,
         tooltip = "Sets the combat glow's intensity. Lower values keep it subtle. Changes apply immediately, including during combat.",
     })
-    local combatWidth = CreateSlider(pages[2], "MinnTinkersWoWFCombat_width", 246, {
+    local combatWidth = CreateSlider(pages[2], "MinnTinkersWoWFCombat_width", y + rowSpacing * 2, {
         label = "Border width", min = 8, max = 48, step = 1,
         getValue = addon.CombatIndicator.GetWidth,
         setValue = function(value) addon.CombatIndicator.SetOption("width", value) end,
         format = function(value) return string.format("%d", value) end,
         tooltip = "Sets the width of the soft edge glow in UI units. The inner edge fades to transparent. Changes apply immediately, including during combat.",
     })
-    CreateSection(pages[2], 298, "Chat & pet frame")
-    checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFChatURLs", 320, false,
-        "Clickable chat URLs", "Highlights web addresses in new chat messages, including bare domains such as discord.gg/invite. Click a link to select its address in a copy window, then press Ctrl+C. Existing WoW links remain intact.",
-        function() return MinnTinkersWoWFDB.chatURLs end,
-        addon.ChatURLs.SetEnabled, addon.ChatURLs.IsAvailable)
-    checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFPetHappiness", 320, true,
-        "Pet happiness bar", "Replaces the hunter pet's happiness face with a thin red/yellow/green meter below its focus bar. The fill shows happiness reserve; the colored thirds are visual guides. Mouseover retains Blizzard's happiness, damage bonus and diet tooltip.",
-        function() return MinnTinkersWoWFDB.petHappinessBar end,
-        addon.PetHappinessBar.SetEnabled, addon.PetHappinessBar.IsAvailable)
-    CreateSection(pages[2], 354, "Range indicator")
+    local _, playerClass = UnitClass("player")
+    y = y + rowSpacing * 2 + rowHeight + sectionGap
+    if playerClass == "HUNTER" then
+        y = CreateSection(pages[2], y, "Pet")
+        checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFPetHappiness", y, false,
+            "Pet happiness bar", "Replaces the hunter pet's happiness face with a thin red/yellow/green meter below its focus bar. The fill shows happiness reserve; the colored thirds are visual guides. Mouseover retains Blizzard's happiness, damage bonus and diet tooltip.",
+            function() return MinnTinkersWoWFDB.petHappinessBar end,
+            addon.PetHappinessBar.SetEnabled, addon.PetHappinessBar.IsAvailable)
+        y = y + rowHeight + sectionGap
+    end
+    local rangeY = CreateSection(pages[2], y, "Range indicator")
     local range = addon.RangeIndicator
-    local rangeEnabled = CreateCheck(pages[2], "MinnTinkersWoWFRangeEnabled", 374, false,
+    local rangeEnabled = CreateCheck(pages[2], "MinnTinkersWoWFRangeEnabled", rangeY, false,
         "Show range indicator", "Shows a white dot when the target is in range of your selected spell, red when out of range. Hides when no valid check is available. This checks range, not cooldowns, resources or line of sight. Settings are saved per character.",
         function() return range.GetSettings().enabled end, range.SetEnabled, range.IsAvailable)
-    local rangeUnlocked = CreateCheck(pages[2], "MinnTinkersWoWFRangeUnlocked", 374, true,
+    local rangeUnlocked = CreateCheck(pages[2], "MinnTinkersWoWFRangeUnlocked", rangeY, true,
         "Unlock position", "Shows a draggable preview even without a target. Drag the circle to move it. Locking makes it click-through. Reset position below brings it back near screen center.",
         function() return not range.GetSettings().locked end,
         function(value) range.SetLocked(not value) end, range.IsAvailable)
     checks[#checks + 1], checks[#checks + 2] = rangeEnabled, rangeUnlocked
     local spellSlot = CreateFrame("Button", "MinnTinkersWoWFRangeSpellSlot", pages[2], "UIPanelButtonTemplate")
-    spellSlot:SetSize(30, 30)
-    spellSlot:SetPoint("TOPLEFT", 16, -410)
+    spellSlot:SetSize(rowHeight, rowHeight)
+    spellSlot:SetPoint("TOPLEFT", 16, -(rangeY + rowSpacing))
     spellSlot.icon = spellSlot:CreateTexture(nil, "ARTWORK")
     spellSlot.icon:SetPoint("TOPLEFT", 3, -3)
     spellSlot.icon:SetPoint("BOTTOMRIGHT", -3, 3)
     local spellInput = CreateFrame("EditBox", "MinnTinkersWoWFRangeSpellInput", pages[2], "InputBoxTemplate")
+    IncreaseFont(spellInput)
     spellInput:SetAutoFocus(false)
     spellInput:SetMaxLetters(128)
-    spellInput:SetHeight(24)
-    spellInput:SetPoint("TOPLEFT", 58, -413)
-    spellInput:SetPoint("TOPRIGHT", -160, -413)
+    spellInput:SetHeight(20)
+    spellInput:SetPoint("TOPLEFT", 58, -(rangeY + rowSpacing + 3))
+    spellInput:SetPoint("TOPRIGHT", -160, -(rangeY + rowSpacing + 3))
     local selectSpell = CreateFrame("Button", "MinnTinkersWoWFRangeSelectSpell", pages[2], "UIPanelButtonTemplate")
-    selectSpell:SetSize(62, 24)
-    selectSpell:SetPoint("TOPRIGHT", -86, -413)
+    selectSpell:SetSize(62, rowHeight)
+    IncreaseFont(selectSpell:GetFontString())
+    selectSpell:SetPoint("TOPRIGHT", -86, -(rangeY + rowSpacing))
     selectSpell:SetText("Select")
     local clearSpell = CreateFrame("Button", "MinnTinkersWoWFRangeClearSpell", pages[2], "UIPanelButtonTemplate")
-    clearSpell:SetSize(62, 24)
-    clearSpell:SetPoint("TOPRIGHT", -16, -413)
+    clearSpell:SetSize(62, rowHeight)
+    IncreaseFont(clearSpell:GetFontString())
+    clearSpell:SetPoint("TOPRIGHT", -16, -(rangeY + rowSpacing))
     clearSpell:SetText("Clear")
     local rangeStatus = pages[2]:CreateFontString("MinnTinkersWoWFRangeStatus", "OVERLAY", "GameFontHighlightSmall")
-    rangeStatus:SetPoint("TOPLEFT", 18, -444)
-    rangeStatus:SetPoint("TOPRIGHT", -18, -444)
+    rangeStatus:SetPoint("TOPLEFT", 16, -(rangeY + rowSpacing * 2 + 6))
+    rangeStatus:SetPoint("TOPRIGHT", -16, -(rangeY + rowSpacing * 2 + 6))
+    IncreaseFont(rangeStatus)
     rangeStatus:SetJustifyH("LEFT")
     rangeStatus:SetMaxLines(1)
-    local rangeSize = CreateSlider(pages[2], "MinnTinkersWoWFRangeSize", 466, {
+    local rangeSize = CreateSlider(pages[2], "MinnTinkersWoWFRangeSize", rangeY + rowSpacing * 3, {
         label = "Indicator size", min = 8, max = 96, step = 1,
         getValue = function() return range.GetSettings().size end,
         setValue = range.SetSize, isAvailable = range.IsAvailable,
         format = function(value) return string.format("%d", value) end,
         tooltip = "Resizes the range circle in UI units. Changes apply immediately. Position and size are saved per character.",
     })
-    local rangeOpacity = CreateSlider(pages[2], "MinnTinkersWoWFRangeOpacity", 500, {
+    local rangeOpacity = CreateSlider(pages[2], "MinnTinkersWoWFRangeOpacity", rangeY + rowSpacing * 4, {
         label = "Indicator opacity", min = 10, max = 100, step = 1,
         getValue = function() return range.GetSettings().opacity end,
         setValue = range.SetOpacity, isAvailable = range.IsAvailable,
@@ -326,8 +345,9 @@ local function CreateOptions()
         tooltip = "Adjusts the range circle's opacity. Changes apply immediately and are saved per character.",
     })
     local resetRange = CreateFrame("Button", "MinnTinkersWoWFRangeResetPosition", pages[2], "UIPanelButtonTemplate")
-    resetRange:SetSize(110, 24)
-    resetRange:SetPoint("TOPLEFT", 18, -538)
+    resetRange:SetSize(120, rowHeight)
+    IncreaseFont(resetRange:GetFontString())
+    resetRange:SetPoint("TOPLEFT", 16, -(rangeY + rowSpacing * 5))
     resetRange:SetText("Reset position")
     resetRange:SetScript("OnClick", range.ResetPosition)
     local function RefreshRangeOptions()
@@ -409,6 +429,61 @@ local function CreateOptions()
     end
     spellSlot:HookScript("OnLeave", HideSpellTooltip)
     spellSlot:HookScript("OnHide", HideSpellTooltip)
+    y = CreateSection(pages[3], 16, "Chat input")
+    for index, option in ipairs({
+        {key = "preserveDraft", label = "Keep unfinished messages", tooltip = "Escape unfocuses chat and keeps your draft for this session. Opening chat normally restores its text and destination. An explicit chat command starts a new message. Autocomplete keeps its native Escape behavior."},
+        {key = "arrowHistory", label = "Up/Down message history", tooltip = "Use plain Up and Down to browse the last 32 messages, saved per character across reloads and normal game exits. History is shared by your chat windows. Down past the newest restores your draft. Autocomplete keeps its native arrow behavior."},
+    }) do
+        local key = option.key
+        checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_" .. key, y, index == 2,
+            option.label, option.tooltip, function() return MinnTinkersWoWFDB.chat[key] end,
+            function(value) addon.ChatInput.SetOption(key, value) end, addon.ChatInput.IsAvailable)
+    end
+    y = CreateSection(pages[3], y + rowHeight + sectionGap, "Chat tools")
+    checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChatURLs", y, false,
+        "Clickable chat URLs", "Highlights web addresses in new chat messages, including bare domains such as discord.gg/invite. Click a link to select its address in a copy window, then press Ctrl+C. Existing WoW links remain intact.",
+        function() return MinnTinkersWoWFDB.chatURLs end, addon.ChatURLs.SetEnabled, addon.ChatURLs.IsAvailable)
+    checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_copyChat", y, true,
+        "Copy chat button", "Adds a Copy icon to the left of each chat input. Opens its retained messages as plain text for Ctrl+A and Ctrl+C. Restricted messages cannot be copied. Combat log is excluded.",
+        function() return MinnTinkersWoWFDB.chat.copyChat end,
+        function(value) addon.ChatTools.SetOption("copyChat", value) end, addon.ChatTools.IsAvailable)
+    checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_unreadMarker", y + rowSpacing, false,
+        "New-message marker", "Shows a small New messages button when messages arrive while you are scrolled up. Click it to return to the bottom. Clears when you reach the bottom; scrolling speed stays native.",
+        function() return MinnTinkersWoWFDB.chat.unreadMarker end,
+        function(value) addon.ChatTools.SetOption("unreadMarker", value) end, addon.ChatTools.IsAvailable)
+    y = CreateSection(pages[3], y + rowSpacing + rowHeight + sectionGap, "Timestamps")
+    local timestamps = CreateFrame("Button", "MinnTinkersWoWFChatTimestamps", pages[3], "UIPanelButtonTemplate")
+    timestamps:SetSize(240, rowHeight)
+    IncreaseFont(timestamps:GetFontString())
+    timestamps:SetPoint("TOPLEFT", 16, -y)
+    local timestampOptions = {
+        {"none", "Off"}, {TIMESTAMP_FORMAT_HHMM_24HR, "24-hour (21:34)"},
+        {TIMESTAMP_FORMAT_HHMMSS_24HR, "24-hour with seconds"},
+        {TIMESTAMP_FORMAT_HHMM_AMPM, "12-hour (9:34 PM)"},
+        {TIMESTAMP_FORMAT_HHMMSS_AMPM, "12-hour with seconds"},
+    }
+    local function RefreshTimestamps()
+        local current = addon.ChatTools.GetTimestampFormat()
+        local label = current == "none" and "Off" or "Custom"
+        for _, option in ipairs(timestampOptions) do if option[1] == current then label = option[2]; break end end
+        timestamps:SetText("Timestamps: " .. label)
+        timestamps:SetEnabled(addon.ChatTools.TimestampsAvailable() and MenuUtil ~= nil)
+    end
+    timestamps:SetScript("OnClick", function(self)
+        MenuUtil.CreateContextMenu(self, function(_, menu)
+            menu:CreateTitle("Timestamps")
+            for _, option in ipairs(timestampOptions) do
+                local value = option[1]
+                if value then menu:CreateRadio(option[2], function() return addon.ChatTools.GetTimestampFormat() == value end,
+                    function() addon.ChatTools.SetTimestampFormat(value); RefreshTimestamps() end) end
+            end
+        end)
+    end)
+    local timestampHint = pages[3]:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    IncreaseFont(timestampHint)
+    timestampHint:SetPoint("TOPLEFT", 16, -(y + rowSpacing + 6))
+    timestampHint:SetText("Uses Blizzard's timestamp setting; applies to new messages.")
+    pages[3]:HookScript("OnShow", RefreshTimestamps)
     window:SetScript("OnShow", function()
         check:SetChecked(MinnTinkersWoWFDB.fastAutoloot)
         for _, control in ipairs(checks) do control:Refresh() end
@@ -419,6 +494,7 @@ local function CreateOptions()
         combatOpacity:Refresh()
         combatWidth:Refresh()
         RefreshRangeOptions()
+        RefreshTimestamps()
     end)
 end
 

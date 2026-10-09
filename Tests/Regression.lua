@@ -6,7 +6,7 @@ local function fixture(saved, characterSaved)
     local slots, lootAction = {}, nil
     local addon = {}
     local combat = false
-    local camera = { value = 1.9, cap = 2.6, writes = 0 }
+    local camera = { value = 1.9, cap = 4.0, writes = 0 }
     env.C_CVar = {
         GetCVar = function() return camera.value and tostring(camera.value) end,
         GetCVarInfo = function()
@@ -22,6 +22,7 @@ local function fixture(saved, characterSaved)
     env.InCombatLockdown = function() return combat end
     env.issecretvalue = function() return false end
     env.CreateColor = function(r, g, b, a) return {r = r, g = g, b = b, a = a} end
+    env.UnitClass = function() return "Hunter", "HUNTER" end
     env.MinnTinkersWoWFDB = saved
     env.MinnTinkersWoWFCharDB = characterSaved
     env.Enum = { LootSlotType = { None = 0 } }
@@ -84,6 +85,10 @@ local function fixture(saved, characterSaved)
         function f:SetAlpha(value) self.alpha = value end
         function f:SetGradient(...) self.gradient = {...} end
         function f:GetHeight() return self.height or 10 end
+        function f:GetFontString()
+            if not self.fontString then self.fontString = frame() end
+            return self.fontString
+        end
         function f:GetFont() return self.font or "Native.ttf", self.fontSize or 10, self.fontFlags or "OUTLINE" end
         function f:SetFont(font, size, flags)
             self.font, self.fontSize, self.fontFlags = font, size, flags
@@ -110,6 +115,8 @@ local function fixture(saved, characterSaved)
         function f:GetChecked() return self.checked end
         function f:CreateFontString(name)
             local text = frame(name)
+            self.fontStrings = self.fontStrings or {}
+            self.fontStrings[#self.fontStrings + 1] = text
             if name then env[name] = text end
             return text
         end
@@ -124,6 +131,7 @@ local function fixture(saved, characterSaved)
     end
     env.CreateFrame = function(_, name, parent, template)
         local f = frame(name)
+        f.template, f.parent = template, parent
         if parent then parent.children[#parent.children + 1] = f end
         frames[#frames + 1] = f
         if name then env[name] = f end
@@ -176,7 +184,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -262,7 +270,7 @@ f = fixture(); f.login(); assert(not f.env.MinnTinkersWoWFOptions)
 f.env.SlashCmdList.MINNTINKERSWOWF()
 local window, check = f.env.MinnTinkersWoWFOptions, f.env.MinnTinkersWoWFFastAutoloot
 assert(window:IsShown() and window.title == "Minn Tinkers WoWF")
-assert(window.portrait == f.addon.icon and window.selectedTab == 1 and window.numTabs == 2)
+assert(window.portrait == f.addon.icon and window.selectedTab == 1 and window.numTabs == 3)
 assert(window.Inset.children[1]:IsShown() and not window.Inset.children[2]:IsShown())
 assert(f.env.UISpecialFrames[1] == window:GetName() and check:GetChecked())
 check:SetChecked(false); check.scripts.OnClick(check)
@@ -338,12 +346,15 @@ window = f.env.MinnTinkersWoWFOptions
 assert(cameraSlider.value == 1.9 and cameraSlider.enabled and f.camera.writes == 0)
 assert(window.resizable and window.width == 700 and window.height == 670)
 assert(table.concat(resize.bounds, ",") == "560,670,1100,800")
-cameraSlider:SetValue(2.6)
-assert(f.camera.value == 2.6 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.6)
-f.addon.CameraDistance.SetFactor(100); assert(f.camera.value == 2.6)
+assert(f.addon.CameraDistance.max == 4.0)
+cameraSlider:SetValue(4.0)
+assert(f.camera.value == 4.0 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 4.0)
+local cameraReload = fixture(f.env.MinnTinkersWoWFDB); cameraReload.login()
+assert(cameraReload.camera.value == 4.0)
+f.addon.CameraDistance.SetFactor(100); assert(f.camera.value == 4.0)
 f.addon.CameraDistance.SetFactor(-1); assert(f.camera.value == 1)
 f.camera.cap = 2.4
-cameraSlider:SetValue(2.6)
+cameraSlider:SetValue(4.0)
 assert(cameraSlider.value == 2.4 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.4)
 f.camera.reject = true
 assert(not f.addon.CameraDistance.SetFactor(2) and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.4)
@@ -1382,6 +1393,7 @@ local function petFixture(saved)
         return true
     end
     env.Enum.PowerType = {Happiness = 27}
+    env.UnitClass = function() return state.hunter and "Hunter" or "Warrior", state.hunter and "HUNTER" or "WARRIOR" end
     env.HasPetUI = function() return true, state.hunter end
     env.UnitPower = function(unit, power)
         assert(unit == "pet" and power == 27)
@@ -1684,3 +1696,315 @@ do
     assert(not unavailable.addon.PetHappinessBar.IsAvailable() and unavailable.env.MinnTinkersWoWFPetHappiness.enabled == false)
 end
 print("PASS: happiness bar anchoring/resizing, pet replacement/dismissal, hidden pet frame, non-hunters, unavailable/invalid values, UI toggle and reload persistence")
+
+local function chatFixture(saved, characterSaved)
+    local test = fixture(saved, characterSaved)
+    local env, create = test.env, test.env.CreateFrame
+    local state = {reads = 0, timestamp = "none", secret = newproxy()}
+    env.canaccessvalue = function(...)
+        for index = 1, select("#", ...) do if rawequal(select(index, ...), state.secret) then return false end end
+        return true
+    end
+    env.TIMESTAMP_FORMAT_HHMM_24HR, env.TIMESTAMP_FORMAT_HHMMSS_24HR = "%H:%M", "%H:%M:%S"
+    env.TIMESTAMP_FORMAT_HHMM_AMPM, env.TIMESTAMP_FORMAT_HHMMSS_AMPM = "%I:%M %p", "%I:%M:%S %p"
+    env.MenuUtil = {CreateContextMenu = function(_, build)
+        state.menu = {}
+        build(nil, {
+            CreateTitle = function() end,
+            CreateRadio = function(_, label, selected, callback)
+                state.menu[#state.menu + 1] = {label = label, selected = selected, callback = callback}
+            end,
+        })
+    end}
+    env.Settings = {
+        GetValue = function(key) assert(key == "showTimestamps"); return state.timestamp end,
+        SetValue = function(key, value) assert(key == "showTimestamps"); state.timestamp = value end,
+    }
+    env.CreateFrame = function(...)
+        local frame = create(...)
+        function frame:SetMultiLine(value) self.multiline = value end
+        function frame:SetFontObject(value) self.fontObject = value end
+        function frame:SetScrollChild(value) self.scrollChild = value end
+        function frame:SetVerticalScroll(value) self.offset = value end
+        function frame:HighlightText() self.highlighted = true end
+        return frame
+    end
+    env.IsAltKeyDown = function() return state.altKey or false end
+    env.IsControlKeyDown = function() return state.controlKey or false end
+    env.IsShiftKeyDown = function() return state.shiftKey or false end
+    env.AutoCompleteBox = {IsShown = function() return state.autocomplete or false end}
+    env.CHAT_FRAMES = {"ChatFrame1"}
+    local function makeChat(name)
+        local chat = env.CreateFrame("Frame", name)
+        chat.buttonFrame = env.CreateFrame("Frame", name .. "ButtonFrame")
+        local box = env.CreateFrame("EditBox", name .. "EditBox")
+        chat.editBox, chat.lines, chat.offset = box, {}, 0
+        box.chatFrame, box.attributes, box.altArrows, box.history = chat, {chatType = "SAY", stickyType = "SAY"}, true, {}
+        function box:GetAltArrowKeyMode() return self.altArrows end
+        function box:SetAltArrowKeyMode(value) self.altArrows = value end
+        function box:GetAttribute(key) return self.attributes[key] end
+        function box:SetAttribute(key, value) self.attributes[key] = value end
+        function box:GetChatType() return self.attributes.chatType end
+        function box:SetChatType(value) self.attributes.chatType = value end
+        function box:GetTellTarget() return self.attributes.tellTarget end
+        function box:SetTellTarget(value) self.attributes.tellTarget = value end
+        function box:UpdateHeader() self.headerType = self:GetChatType() end
+        function box:ResetChatType() end
+        function box:AddHistoryLine(text) self.history[#self.history + 1] = text end
+        function box:ClearHistory() self.history = {} end
+        function box:SendMessage()
+            self:AddHistoryLine(self:GetText())
+            self:SetText(""); self:ClearFocus(); self:Hide()
+        end
+        function box:SetText(value, userInput)
+            self.textValue = value
+            if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self, userInput) end
+        end
+        function box:GetText() return self.textValue or "" end
+        box:SetScript("OnEscapePressed", function(self)
+            if state.autocomplete then state.autocomplete = false; return end
+            self:SetChatType("SAY"); self:SetText(""); self:Hide(); self:ClearFocus()
+        end)
+        function chat:AtBottom() return self.offset == 0 end
+        function chat:SetScrollOffset(value) self.offset = value end
+        function chat:ScrollToBottom() self:SetScrollOffset(0) end
+        function chat:AddMessage(text) self.lines[#self.lines + 1] = text end
+        function chat:GetNumMessages() return #self.lines end
+        function chat:GetMessageInfo(index) state.reads = state.reads + 1; return self.lines[index] end
+        function chat:Clear() self.lines = {}; self:SetScrollOffset(0) end
+        return chat, box
+    end
+    local chat, box = makeChat("ChatFrame1")
+    env.ChatFrameUtil = {
+        GetChatFocusOverride = function() return state.focusOverride end,
+        ChooseBoxForSend = function(frame) return frame and frame.editBox or box end,
+        OpenChat = function(text, frame)
+            local input = frame and frame.editBox or box
+            input:Show(); input:SetFocus()
+            input.text, input.setText = text, text and 1 or nil
+        end,
+    }
+    env.FCF_OpenNewWindow = function() makeChat("ChatFrame3"); env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame3" end
+    env.FCF_OpenTemporaryWindow = function() makeChat("ChatFrame4"); env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame4" end
+    state.chat, state.box, state.makeChat = chat, box, makeChat
+    state.open = function(text, frame)
+        env.ChatFrameUtil.OpenChat(text, frame)
+        local input = frame and frame.editBox or box
+        if input.setText == 1 then input:SetText(input.text); input.setText = 0 end
+    end
+    return test, state
+end
+
+do
+    local test, state = chatFixture(); test.login()
+    local env, box = test.env, state.box
+    assert(test.addon.ChatInput.IsAvailable() and box.altArrows == false)
+    state.open(""); box:SetChatType("WHISPER"); box:SetTellTarget("Minnona-Northdale")
+    box:SetText("unfinished whisper", true)
+    state.autocomplete = true; box.scripts.OnEscapePressed(box)
+    assert(box:GetText() == "unfinished whisper" and box.focus and box:IsShown())
+    box.scripts.OnEscapePressed(box)
+    assert(box:GetText() == "unfinished whisper" and not box.focus and not box:IsShown())
+    state.open("")
+    assert(box:GetText() == "unfinished whisper" and box:GetChatType() == "WHISPER" and box:GetTellTarget() == "Minnona-Northdale")
+    box:SendMessage(); state.open("")
+    assert(box:GetText() == "" and #box.history == 1)
+    box:SetChatType("CHANNEL"); box:SetAttribute("channelTarget", 4); box:SetText("channel draft", true)
+    box.scripts.OnEscapePressed(box); state.open("")
+    assert(box:GetText() == "channel draft" and box:GetChatType() == "CHANNEL" and box:GetAttribute("channelTarget") == 4)
+    box.scripts.OnEscapePressed(box); state.open("/p ")
+    assert(box:GetText() == "/p ", "Explicit commands must not restore the old draft's destination")
+    box:SetText("temporary", true); box:SetText("", true); box.scripts.OnEscapePressed(box); state.open("")
+    assert(box:GetText() == "", "A deliberately emptied draft must not return")
+    box:SetText("hidden", true); box.scripts.OnEscapePressed(box)
+    test.addon.ChatInput.SetOption("preserveDraft", false); state.open("")
+    assert(box:GetText() == "")
+    test.addon.ChatInput.SetOption("arrowHistory", false); assert(box.altArrows == true)
+    test.addon.ChatInput.SetOption("arrowHistory", true); assert(box.altArrows == false)
+    test.addon.ChatInput.SetOption("preserveDraft", true)
+    box:SetText(state.secret, true); box.scripts.OnEscapePressed(box); state.open("")
+    assert(box:GetText() == "", "Inaccessible text must never be retained or restored")
+    env.FCF_OpenNewWindow(); env.FCF_OpenTemporaryWindow()
+    assert(env.ChatFrame3.editBox.altArrows == false and env.ChatFrame4.editBox.altArrows == false)
+    local hooks = box.scripts.OnEscapePressed
+    test.addon.ChatInput.Initialize(); test.addon.ChatTools.Initialize()
+    assert(hooks == box.scripts.OnEscapePressed, "Initialization must not install duplicate hooks")
+    box:SetText("old conversation", true); box.scripts.OnEscapePressed(box); box:ClearHistory(); state.open("")
+    assert(box:GetText() == "", "Reused chat windows must not restore drafts from the old conversation")
+    assert(box.scripts.OnUpdate == nil and #test.timers == 0)
+    test.combat(true); state.open(""); box:SetText("combat draft", true); box.scripts.OnEscapePressed(box); state.open("")
+    assert(box:GetText() == "combat draft")
+end
+print("PASS: chat draft Escape/reopen, autocomplete, whisper/channel routing, explicit commands, empty/sent/disabled/secret drafts, native arrow mode restoration, late windows and no polling")
+
+do
+    local test, state = chatFixture(); test.login()
+    local env, chat = test.env, state.chat
+    local copy, marker = chat.children[1], chat.children[2]
+    assert(copy.template == "UIMenuButtonStretchTemplate" and copy:IsShown() and not marker:IsShown())
+    assert(copy.width == 26 and copy.height == 26 and copy.point[2] == chat.buttonFrame and copy.point[3] == "BOTTOM" and copy.point[4] == 0 and copy.point[5] == -4)
+    chat:AddMessage("at bottom"); assert(not marker:IsShown() and state.reads == 0)
+    chat:SetScrollOffset(3); assert(not marker:IsShown())
+    chat:AddMessage("|cff00ff00|Hplayer:Name|h[Name]|h|r: hello |Ticon:12|t https://example.com")
+    assert(marker:IsShown() and state.reads == 0, "Unread tracking must never scan chat history")
+    marker.scripts.OnClick(); assert(chat:AtBottom() and not marker:IsShown())
+    chat:SetScrollOffset(2); chat:AddMessage(state.secret)
+    test.addon.ChatTools.SetOption("unreadMarker", false); assert(not marker:IsShown())
+    test.addon.ChatTools.SetOption("unreadMarker", true); assert(not marker:IsShown())
+    chat:AddMessage("new"); assert(marker:IsShown()); chat:Clear(); assert(not marker:IsShown())
+    chat:AddMessage("oldest"); chat:AddMessage("|cff00ff00|Hitem:1|h[Item]|h|r |A:atlas:12:12|a || test")
+    chat:AddMessage(state.secret); chat:AddMessage("newest")
+    copy.scripts.OnEnter(copy); assert(env.GameTooltip:IsOwned(copy) and env.GameTooltip.text == "Copy chat")
+    copy.scripts.OnLeave(copy); assert(not env.GameTooltip:IsShown())
+    copy.scripts.OnClick()
+    local window, input = env.MinnTinkersWoWFCopyChat, env.MinnTinkersWoWFCopyChatText
+    assert(window:IsShown() and input.focus and input.highlighted and input.multiline)
+    assert(input:GetText() == "oldest\n[Item]  | test\nnewest")
+    local reads = state.reads; chat:AddMessage("after copy"); assert(state.reads == reads)
+    copy.scripts.OnClick()
+    assert(not window:IsShown() and not input.focus and input:GetText() == "" and state.reads == reads, "Closing must not read the chat buffer")
+    copy.scripts.OnClick()
+    assert(window:IsShown() and input:GetText():find("after copy", 1, true), "Reopening must refresh retained chat text")
+    input.scripts.OnEscapePressed(); assert(not window:IsShown() and not input.focus and input:GetText() == "")
+    test.addon.ChatTools.SetOption("copyChat", false); assert(not copy:IsShown())
+    copy.scripts.OnClick(); assert(not window:IsShown())
+    test.addon.ChatTools.SetOption("copyChat", true); copy.scripts.OnClick(); assert(window:IsShown())
+    test.addon.ChatTools.SetOption("copyChat", false); assert(not window:IsShown())
+    test.addon.ToggleOptions()
+    env.MinnTinkersWoWFOptionsTab3.scripts.OnClick(env.MinnTinkersWoWFOptionsTab3)
+    assert(env.MinnTinkersWoWFDB.lastTab == "Chat" and env.MinnTinkersWoWFChatURLs.point[3] == -114)
+    local timestamps = env.MinnTinkersWoWFChatTimestamps
+    assert(timestamps.enabled and timestamps.text == "Timestamps: Off")
+    timestamps.scripts.OnClick(timestamps)
+    assert(#state.menu == 5 and state.menu[1].selected())
+    state.menu[3].callback()
+    assert(state.timestamp == "%H:%M:%S" and timestamps.text == "Timestamps: 24-hour with seconds")
+    local reload = chatFixture(env.MinnTinkersWoWFDB); reload.login(); reload.addon.ToggleOptions()
+    assert(reload.env.MinnTinkersWoWFOptions.selectedTab == 3 and not reload.env.MinnTinkersWoWFDB.chat.copyChat)
+    local warrior = fixture(); warrior.env.UnitClass = function() return "Warrior", "WARRIOR" end
+    warrior.login(); warrior.addon.ToggleOptions()
+    assert(not warrior.env.MinnTinkersWoWFPetHappiness and warrior.env.MinnTinkersWoWFRangeEnabled.point[3] == -316)
+    assert(not env.MinnTinkersWoWFChat_copyChat.checked and env.MinnTinkersWoWFChat_copyChat.enabled)
+end
+print("PASS: event-driven unread marker/reset, on-demand plain-text copy/order/reuse/secret exclusion, independent toggles, native timestamps, Chat tab persistence and hunter-only Pet layout")
+
+
+do
+    local test, state = chatFixture(); test.login()
+    local box, env = state.box, test.env
+    local function arrow(key) box.scripts.OnArrowPressed(box, key) end
+    state.open(""); box.altArrows = true; box.scripts.OnEditFocusGained(box); assert(not box.altArrows)
+    box:SetText("draft", true); arrow("UP")
+    assert(box:GetText() == "draft", "Empty history must preserve input")
+    box:SetText("first", true); box:SendMessage()
+    state.open(""); box:SetText("second", true); box:SendMessage()
+    state.open(""); box:SetChatType("WHISPER"); box:SetTellTarget("Minnona"); box:SetText("draft", true)
+    arrow("UP"); assert(box:GetText() == "second")
+    arrow("UP"); assert(box:GetText() == "first")
+    arrow("UP"); assert(box:GetText() == "first", "Oldest entry must not wrap")
+    arrow("DOWN"); assert(box:GetText() == "second")
+    arrow("DOWN"); assert(box:GetText() == "draft" and box:GetChatType() == "WHISPER" and box:GetTellTarget() == "Minnona")
+    arrow("DOWN"); assert(box:GetText() == "draft")
+    env.AutoCompleteBox.parent, state.autocomplete = box, true
+    arrow("UP"); assert(box:GetText() == "draft", "Autocomplete must retain its arrows")
+    state.autocomplete = false
+    for _, modifier in ipairs({"altKey", "controlKey", "shiftKey"}) do
+        state[modifier] = true; arrow("UP"); assert(box:GetText() == "draft"); state[modifier] = false
+    end
+    test.addon.ChatInput.SetOption("arrowHistory", false); arrow("UP"); assert(box:GetText() == "draft")
+    test.addon.ChatInput.SetOption("arrowHistory", true)
+    arrow("UP"); box:SetText("edited", true); arrow("UP"); assert(box:GetText() == "second")
+    arrow("DOWN"); assert(box:GetText() == "edited", "Editing recalled text must start a new draft")
+    box:ClearHistory(); arrow("UP"); assert(box:GetText() == "second", "Native history resets must retain saved messages")
+    arrow("DOWN"); assert(box:GetText() == "edited")
+    for index = 1, 40 do box:AddHistoryLine("entry " .. index) end
+    box:AddHistoryLine("entry 40"); box:AddHistoryLine(state.secret)
+    for index = 1, 40 do arrow("UP") end
+    assert(box:GetText() == "entry 9", "Retain only 32 accessible entries and skip consecutive duplicates")
+    for index = 1, 40 do arrow("DOWN") end
+    assert(box:GetText() == "edited")
+    test.addon.ChatInput.SetOption("preserveDraft", false)
+    arrow("UP"); assert(box:GetText() == "entry 40", "History must work independently of Escape preservation")
+    test.combat(true); arrow("UP"); assert(box:GetText() == "entry 39")
+    assert(#test.timers == 0 and box.scripts.OnUpdate == nil)
+end
+print("PASS: actual Up/Down history traversal, both bounds, scratch draft/destination restoration, empty/cleared history, editing, modifiers/autocomplete, independent toggle, secrets and bounded storage")
+
+
+-- SavedVariables are character-specific; only sent messages survive a fresh Lua environment.
+do
+    local test, state = chatFixture(); test.login()
+    state.open(""); state.box:SetText("first saved", true); state.box:SendMessage()
+    state.open(""); state.box:SetText("second saved", true); state.box:SendMessage()
+    state.open(""); state.box:SetText("unsent draft", true); state.box.scripts.OnEscapePressed(state.box)
+    local saved = test.env.MinnTinkersWoWFCharDB
+    assert(#saved.chatHistory == 2 and saved.chatHistory[2] == "second saved")
+    local serialized = string.format("return {chatHistory={%q,%q},extra=%q}", saved.chatHistory[1], saved.chatHistory[2], "preserved")
+    local reloadedDB = assert(loadstring(serialized))()
+    local reload, fresh = chatFixture(test.env.MinnTinkersWoWFDB, reloadedDB); reload.login()
+    fresh.open(""); assert(fresh.box:GetText() == "", "Unsent drafts remain session-only")
+    fresh.box.scripts.OnArrowPressed(fresh.box, "UP"); assert(fresh.box:GetText() == "second saved")
+    fresh.box.scripts.OnArrowPressed(fresh.box, "UP"); assert(fresh.box:GetText() == "first saved")
+    assert(reloadedDB.extra == "preserved")
+    reload.env.FCF_OpenNewWindow()
+    local newChat = reload.env.ChatFrame3
+    fresh.open("", newChat); newChat.editBox.scripts.OnArrowPressed(newChat.editBox, "UP")
+    assert(newChat.editBox:GetText() == "second saved", "New windows must share the character's saved history")
+    newChat.editBox:ClearHistory()
+    newChat.editBox:SetText("", true); newChat.editBox.scripts.OnArrowPressed(newChat.editBox, "UP")
+    assert(newChat.editBox:GetText() == "second saved" and #reloadedDB.chatHistory == 2)
+    newChat.editBox:AddHistoryLine("third saved")
+    fresh.box:SetText("", true); fresh.box.scripts.OnArrowPressed(fresh.box, "UP")
+    assert(fresh.box:GetText() == "third saved", "Messages from any input must update the shared history")
+    local alt, other = chatFixture(test.env.MinnTinkersWoWFDB); alt.login()
+    other.open(""); other.box.scripts.OnArrowPressed(other.box, "UP")
+    assert(other.box:GetText() == "" and #alt.env.MinnTinkersWoWFCharDB.chatHistory == 0)
+    for index = 1, 40 do newChat.editBox:AddHistoryLine("persisted " .. index) end
+    assert(#reloadedDB.chatHistory == 32 and reloadedDB.chatHistory[1] == "persisted 9")
+    local corrupt = {chatHistory = {false, 14, "", "valid", "valid", "last"}, extra = true}
+    local repaired = chatFixture(nil, corrupt); repaired.login()
+    assert(#corrupt.chatHistory == 2 and corrupt.chatHistory[1] == "valid" and corrupt.chatHistory[2] == "last" and corrupt.extra)
+    local malformed = {chatHistory = "invalid"}; local repairedType = chatFixture(nil, malformed); repairedType.login()
+    assert(type(malformed.chatHistory) == "table" and #malformed.chatHistory == 0)
+end
+print("PASS: sent-history serialization/reload, session-only drafts, per-character isolation, shared/reused windows, bounded saved storage and invalid saved-data repair")
+
+
+-- Consistent rows and category gaps must fit the existing minimum window height.
+do
+    local test = fixture(); test.login(); test.addon.ToggleOptions()
+    local env, window = test.env, test.env.MinnTinkersWoWFOptions
+    local function y(region) return -region.point[#region.point] end
+    local function heading(page, title)
+        for _, text in ipairs(page.fontStrings) do if text.text == title then return text end end
+        error("Missing section: " .. title)
+    end
+    local function gap(page, title, lastRow)
+        assert(y(heading(page, title)) - (y(lastRow) + 26) == 24, "Section gaps must be equal: " .. title)
+    end
+    local universal, ui, chat = unpack(window.Inset.children)
+    gap(universal, "Camera", env.MinnTinkersWoWFFastAutoloot)
+    gap(universal, "Questing", env.MinnTinkersWoWFCameraDistance.parent)
+    local note
+    for _, text in ipairs(universal.fontStrings) do if text.text == "Hold Shift to handle quests manually." then note = text end end
+    assert(y(heading(universal, "NPC interaction")) - (y(note) - 6 + 26) == 24)
+    gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
+    gap(ui, "Pet", env.MinnTinkersWoWFCombat_width.parent)
+    gap(ui, "Range indicator", env.MinnTinkersWoWFPetHappiness)
+    gap(chat, "Chat tools", env.MinnTinkersWoWFChat_preserveDraft)
+    gap(chat, "Timestamps", env.MinnTinkersWoWFChat_unreadMarker)
+    for _, rows in ipairs({
+        {env.MinnTinkersWoWFFont_keybinds.parent, env.MinnTinkersWoWFFont_itemCount.parent, env.MinnTinkersWoWFFont_macroText.parent},
+        {env.MinnTinkersWoWFCombat_enabled, env.MinnTinkersWoWFCombat_opacity.parent, env.MinnTinkersWoWFCombat_width.parent},
+        {env.MinnTinkersWoWFRangeEnabled, env.MinnTinkersWoWFRangeSpellSlot},
+        {env.MinnTinkersWoWFRangeSize.parent, env.MinnTinkersWoWFRangeOpacity.parent, env.MinnTinkersWoWFRangeResetPosition},
+    }) do
+        for index = 2, #rows do assert(y(rows[index]) - y(rows[index - 1]) == 32) end
+    end
+    assert(y(env.MinnTinkersWoWFRangeResetPosition) + 26 == 576 and window.height == 670)
+    assert(env.MinnTinkersWoWFRangeEnabled.Text.fontSize == 11 and heading(ui, "Range indicator").fontSize == 11)
+    local originalSize = env.MinnTinkersWoWFRangeEnabled.Text.fontSize
+    test.addon.ToggleOptions(); test.addon.ToggleOptions()
+    assert(env.MinnTinkersWoWFRangeEnabled.Text.fontSize == originalSize, "Reopening must not keep increasing fonts")
+end
+print("PASS: equal category gaps, consistent control rows, hunter layout fits minimum size, slightly larger text and no font growth on reopen")
