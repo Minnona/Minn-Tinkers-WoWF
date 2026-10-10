@@ -27,6 +27,9 @@ startup:SetScript("OnEvent", function(self, event, name)
         if type(MinnTinkersWoWFCharDB.rangeIndicator) ~= "table" then
             MinnTinkersWoWFCharDB.rangeIndicator = {}
         end
+        if type(MinnTinkersWoWFCharDB.buffReminder) ~= "table" then
+            MinnTinkersWoWFCharDB.buffReminder = {}
+        end
         if MinnTinkersWoWFDB.fastAutoloot == nil then
             MinnTinkersWoWFDB.fastAutoloot = true
         end
@@ -60,7 +63,7 @@ startup:SetScript("OnEvent", function(self, event, name)
             MinnTinkersWoWFDB.chatURLs = true
         end
         if type(MinnTinkersWoWFDB.chat) ~= "table" then MinnTinkersWoWFDB.chat = {} end
-        for key, value in pairs({preserveDraft = true, arrowHistory = true, copyChat = true, unreadMarker = true}) do
+        for key, value in pairs({preserveDraft = true, arrowHistory = true, copyChat = true, unreadMarker = true, saveHistory = true}) do
             if MinnTinkersWoWFDB.chat[key] == nil then MinnTinkersWoWFDB.chat[key] = value end
         end
         if MinnTinkersWoWFDB.petHappinessBar == nil then
@@ -80,8 +83,13 @@ startup:SetScript("OnEvent", function(self, event, name)
         addon.ChatURLs.Initialize()
         addon.ChatInput.Initialize()
         addon.ChatTools.Initialize()
+        addon.ChatHistory.Initialize()
         addon.RangeIndicator.Initialize()
         addon.PetHappinessBar.Initialize()
+        local _, playerClass = UnitClass("player")
+        if playerClass == "HUNTER" then
+            addon.BuffReminder.Initialize(19506) -- Trueshot Aura; resolves the learned rank at login.
+        end
         addon.InitializeMinimapButton()
     end
 end)

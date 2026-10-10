@@ -5,6 +5,12 @@ local initialized = false
 local boxes = {}
 local history
 
+local function CanRestoreText(text)
+    local command = text:match("^(/[^%s]+)")
+    -- Protected commands must remain player-supplied; never insert them from addon storage.
+    return not command or IsSecureCmd and not IsSecureCmd(command)
+end
+
 local function Capture(editBox, state, userInput)
     if not MinnTinkersWoWFDB.chat.preserveDraft then return end
     local text = editBox:GetText()
@@ -14,6 +20,10 @@ local function Capture(editBox, state, userInput)
     end
     if text == "" then
         if userInput then state.current, state.draft = nil, nil end
+        return
+    end
+    if not CanRestoreText(text) then
+        state.current, state.draft = nil, nil
         return
     end
     local chatType, target, channel = editBox:GetChatType(), editBox:GetTellTarget(), editBox:GetAttribute("channelTarget")
@@ -57,11 +67,17 @@ local function Attach(editBox)
         if not state.historyIndex then
             local text, chatType = self:GetText(), self:GetChatType()
             local target, channel = self:GetTellTarget(), self:GetAttribute("channelTarget")
-            if not canaccessvalue(text, chatType, target, channel) or type(text) ~= "string" then return end
+            if not canaccessvalue(text, chatType, target, channel) or type(text) ~= "string" or not CanRestoreText(text) then return end
             state.historyDraft = {text = text, chatType = chatType, target = target, channel = channel}
             state.historyIndex = #history + 1
         end
-        state.historyIndex = math.max(1, math.min(#history + 1, state.historyIndex + (key == "UP" and -1 or 1)))
+        local direction = key == "UP" and -1 or 1
+        local index = state.historyIndex + direction
+        while index >= 1 and index <= #history and not CanRestoreText(history[index]) do
+            index = index + direction
+        end
+        if index < 1 then return end
+        state.historyIndex = math.min(#history + 1, index)
         state.browsing = true
         if state.historyIndex <= #history then
             self:SetText(history[state.historyIndex])
@@ -91,7 +107,11 @@ local function Attach(editBox)
         state.historyIndex, state.historyDraft = nil, nil
         state.current, state.draft = nil, nil
     end)
-    hooksecurefunc(editBox, "SendMessage", function()
+    -- Leave the native command-execution method untouched. Observe the key event after it runs.
+    editBox:HookScript("OnEnterPressed", function()
+        -- Autocomplete can consume Enter without sending or clearing the input.
+        local text = editBox:GetText()
+        if not canaccessvalue(text) or text ~= "" then return end
         state.historyIndex, state.historyDraft = nil, nil
         state.current, state.draft = nil, nil
     end)

@@ -184,7 +184,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -270,7 +270,7 @@ f = fixture(); f.login(); assert(not f.env.MinnTinkersWoWFOptions)
 f.env.SlashCmdList.MINNTINKERSWOWF()
 local window, check = f.env.MinnTinkersWoWFOptions, f.env.MinnTinkersWoWFFastAutoloot
 assert(window:IsShown() and window.title == "Minn Tinkers WoWF")
-assert(window.portrait == f.addon.icon and window.selectedTab == 1 and window.numTabs == 3)
+assert(window.portrait == f.addon.icon and window.selectedTab == 1 and window.numTabs == 4)
 assert(window.Inset.children[1]:IsShown() and not window.Inset.children[2]:IsShown())
 assert(f.env.UISpecialFrames[1] == window:GetName() and check:GetChecked())
 check:SetChecked(false); check.scripts.OnClick(check)
@@ -1715,7 +1715,7 @@ do
     state.hunter = true; state.value = nil; test.emit("PET_UI_UPDATE"); assert(frame.alpha == 0)
     state.value = 200; test.emit("PET_UI_UPDATE"); assert(frame.alpha == 1)
     test.addon.ToggleOptions()
-    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local tab = env.MinnTinkersWoWFOptionsTab4; tab.scripts.OnClick(tab)
     local check = env.MinnTinkersWoWFPetHappiness
     assert(check.enabled and check.checked)
     check:SetChecked(false); check.scripts.OnClick(check)
@@ -1745,7 +1745,12 @@ print("PASS: happiness bar anchoring/resizing, pet replacement/dismissal, hidden
 local function chatFixture(saved, characterSaved)
     local test = fixture(saved, characterSaved)
     local env, create = test.env, test.env.CreateFrame
-    local state = {reads = 0, timestamp = "none", secret = newproxy()}
+    local state = {reads = 0, timestamp = "none", secret = newproxy(), classRGB = {0.4, 0.6, 0.8}, colorQueries = 0}
+    env.C_ClassColor = {GetClassColor = function(class)
+        assert(class == select(2, env.UnitClass("player")))
+        state.colorQueries = state.colorQueries + 1
+        return {GetRGB = function() return unpack(state.classRGB) end}
+    end}
     env.canaccessvalue = function(...)
         for index = 1, select("#", ...) do if rawequal(select(index, ...), state.secret) then return false end end
         return true
@@ -1767,12 +1772,42 @@ local function chatFixture(saved, characterSaved)
     }
     env.CreateFrame = function(...)
         local frame = create(...)
+        function frame:EnableMouse(value) self.mouseEnabled = value end
+        function frame:CreateAnimationGroup()
+            local group = {playing = false, plays = 0, stops = 0}
+            self.animationGroup = group
+            function group:SetLooping(value) self.loop = value end
+            function group:Play() self.playing = true; self.plays = self.plays + 1 end
+            function group:Stop() self.playing = false; self.stops = self.stops + 1 end
+            function group:CreateAnimation(kind)
+                local animation = {kind = kind}
+                self.animation = animation
+                function animation:SetFromAlpha(value) self.from = value end
+                function animation:SetToAlpha(value) self.to = value end
+                function animation:SetDuration(value) self.duration = value end
+                function animation:SetSmoothing(value) self.smoothing = value end
+                return animation
+            end
+            return group
+        end
+        local createTexture = frame.CreateTexture
+        function frame:CreateTexture(...)
+            local texture = createTexture(self, ...)
+            self.textures = self.textures or {}
+            self.textures[#self.textures + 1] = texture
+            function texture:SetColorTexture(...) self.colorTexture = {...} end
+            return texture
+        end
         function frame:SetMultiLine(value) self.multiline = value end
         function frame:SetFontObject(value) self.fontObject = value end
         function frame:SetScrollChild(value) self.scrollChild = value end
         function frame:SetVerticalScroll(value) self.offset = value end
         function frame:HighlightText() self.highlighted = true end
         return frame
+    end
+    env.IsSecureCmd = function(command)
+        local secure = { ["/TARGET"] = true, ["/TAR"] = true, ["/CAST"] = true, ["/USE"] = true, ["/ZIELEN"] = true }
+        return secure[command:upper()]
     end
     env.IsAltKeyDown = function() return state.altKey or false end
     env.IsControlKeyDown = function() return state.controlKey or false end
@@ -1784,6 +1819,7 @@ local function chatFixture(saved, characterSaved)
         chat.buttonFrame = env.CreateFrame("Frame", name .. "ButtonFrame")
         local box = env.CreateFrame("EditBox", name .. "EditBox")
         chat.editBox, chat.lines, chat.offset = box, {}, 0
+        chat.lineColors, chat.maximum, chat.active = {}, 120, true
         box.chatFrame, box.attributes, box.altArrows, box.history = chat, {chatType = "SAY", stickyType = "SAY"}, true, {}
         function box:GetAltArrowKeyMode() return self.altArrows end
         function box:SetAltArrowKeyMode(value) self.altArrows = value end
@@ -1801,6 +1837,10 @@ local function chatFixture(saved, characterSaved)
             self:AddHistoryLine(self:GetText())
             self:SetText(""); self:ClearFocus(); self:Hide()
         end
+        box:SetScript("OnEnterPressed", function(self)
+            if state.autocomplete then state.autocomplete = false; return end
+            self:SendMessage()
+        end)
         function box:SetText(value, userInput)
             self.textValue = value
             if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self, userInput) end
@@ -1811,12 +1851,33 @@ local function chatFixture(saved, characterSaved)
             self:SetChatType("SAY"); self:SetText(""); self:Hide(); self:ClearFocus()
         end)
         function chat:AtBottom() return self.offset == 0 end
-        function chat:SetScrollOffset(value) self.offset = value end
+        chat.displayCallbacks = {}
+        function chat:AddOnDisplayRefreshedCallback(callback) self.displayCallbacks[#self.displayCallbacks + 1] = callback end
+        function chat:SetScrollOffset(value)
+            self.offset = value
+            for _, callback in ipairs(self.displayCallbacks) do callback(self) end
+        end
         function chat:ScrollToBottom() self:SetScrollOffset(0) end
-        function chat:AddMessage(text) self.lines[#self.lines + 1] = text end
+        function chat:AddMessage(text, r, g, b)
+            if #self.lines == self.maximum then table.remove(self.lines, 1); table.remove(self.lineColors, 1) end
+            self.lines[#self.lines + 1] = text
+            self.lineColors[#self.lineColors + 1] = {r, g, b}
+        end
+        function chat:BackFillMessage(text, r, g, b)
+            if #self.lines < self.maximum then
+                table.insert(self.lines, 1, text); table.insert(self.lineColors, 1, {r, g, b})
+                for _, callback in ipairs(self.displayCallbacks) do callback(self) end
+            end
+        end
+        function chat:GetMaxLines() return self.maximum end
+        function chat:SetMaxLines(value) self.maximum = value end
         function chat:GetNumMessages() return #self.lines end
-        function chat:GetMessageInfo(index) state.reads = state.reads + 1; return self.lines[index] end
-        function chat:Clear() self.lines = {}; self:SetScrollOffset(0) end
+        function chat:GetMessageInfo(index)
+            state.reads = state.reads + 1
+            local colors = self.lineColors[index] or {}
+            return self.lines[index], colors[1], colors[2], colors[3]
+        end
+        function chat:Clear() self.lines, self.lineColors = {}, {}; self:SetScrollOffset(0) end
         return chat, box
     end
     local chat, box = makeChat("ChatFrame1")
@@ -1830,7 +1891,16 @@ local function chatFixture(saved, characterSaved)
         end,
     }
     env.FCF_OpenNewWindow = function() makeChat("ChatFrame3"); env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame3" end
-    env.FCF_OpenTemporaryWindow = function() makeChat("ChatFrame4"); env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame4" end
+    env.FCF_OpenTemporaryWindow = function()
+        local temporary = makeChat("ChatFrame4"); temporary.isTemporary = true
+        env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame4"
+    end
+    env.FCF_IterateActiveChatWindows = function(callback)
+        for _, name in ipairs(env.CHAT_FRAMES) do
+            local frame = env[name]
+            if frame.active and callback(frame) then break end
+        end
+    end
     state.chat, state.box, state.makeChat = chat, box, makeChat
     state.open = function(text, frame)
         env.ChatFrameUtil.OpenChat(text, frame)
@@ -1841,18 +1911,23 @@ local function chatFixture(saved, characterSaved)
 end
 
 do
-    local test, state = chatFixture(); test.login()
+    local test, state = chatFixture()
+    local nativeSend = state.box.SendMessage
+    test.login()
     local env, box = test.env, state.box
+    assert(box.SendMessage == nativeSend, "Protected slash commands must retain the native send method")
     assert(test.addon.ChatInput.IsAvailable() and box.altArrows == false)
     state.open(""); box:SetChatType("WHISPER"); box:SetTellTarget("Minnona-Northdale")
     box:SetText("unfinished whisper", true)
+    state.autocomplete = true; box.scripts.OnEnterPressed(box)
+    assert(box:GetText() == "unfinished whisper" and #box.history == 0)
     state.autocomplete = true; box.scripts.OnEscapePressed(box)
     assert(box:GetText() == "unfinished whisper" and box.focus and box:IsShown())
     box.scripts.OnEscapePressed(box)
     assert(box:GetText() == "unfinished whisper" and not box.focus and not box:IsShown())
     state.open("")
     assert(box:GetText() == "unfinished whisper" and box:GetChatType() == "WHISPER" and box:GetTellTarget() == "Minnona-Northdale")
-    box:SendMessage(); state.open("")
+    box.scripts.OnEnterPressed(box); state.open("")
     assert(box:GetText() == "" and #box.history == 1)
     box:SetChatType("CHANNEL"); box:SetAttribute("channelTarget", 4); box:SetText("channel draft", true)
     box.scripts.OnEscapePressed(box); state.open("")
@@ -1879,22 +1954,61 @@ do
     assert(box.scripts.OnUpdate == nil and #test.timers == 0)
     test.combat(true); state.open(""); box:SetText("combat draft", true); box.scripts.OnEscapePressed(box); state.open("")
     assert(box:GetText() == "combat draft")
+    local target, targetState = chatFixture()
+    local targetBox = target.env.ChatFrame1.editBox
+    local executed = 0
+    targetBox.SendMessage = function(self)
+        assert(self:GetText() == "/target Black Ooze")
+        executed = executed + 1
+        self:AddHistoryLine(self:GetText())
+        self:SetText(""); self:Hide(); self:ClearFocus()
+    end
+    local commandSend = targetBox.SendMessage
+    target.login()
+    assert(targetBox.SendMessage == commandSend)
+    targetBox:SetText("/target Black Ooze", true)
+    targetBox.scripts.OnEnterPressed(targetBox)
+    assert(executed == 1 and target.env.MinnTinkersWoWFCharDB.chatHistory[1] == "/target Black Ooze")
+    targetBox.scripts.OnEscapePressed(targetBox); targetState.open("")
+    assert(targetBox:GetText() == "", "Executed commands must not become cancelled drafts")
 end
 print("PASS: chat draft Escape/reopen, autocomplete, whisper/channel routing, explicit commands, empty/sent/disabled/secret drafts, native arrow mode restoration, late windows and no polling")
 
 do
-    local test, state = chatFixture(); test.login()
+    local test, state = chatFixture()
+    local nativeScroll, nativeClear = state.chat.SetScrollOffset, state.chat.Clear
+    test.login()
     local env, chat = test.env, state.chat
+    assert(chat.SetScrollOffset == nativeScroll and chat.Clear == nativeClear,
+        "Secure scrolling and clearing methods must not be wrapped by addon hooks")
+    assert(#chat.displayCallbacks == 1)
+    test.addon.ChatTools.Initialize(); assert(#chat.displayCallbacks == 1)
     local copy, marker = chat.children[1], chat.children[2]
     assert(copy.template == "UIMenuButtonStretchTemplate" and copy:IsShown() and not marker:IsShown())
+    local pulse = marker.animationGroup
+    assert(pulse.loop == "BOUNCE" and not pulse.playing and pulse.animation.kind == "Alpha")
+    assert(pulse.animation.from == 0.35 and pulse.animation.to == 1 and pulse.animation.duration == 0.8
+        and pulse.animation.smoothing == "IN_OUT")
+    assert(marker.template == nil and marker.mouseEnabled == false and not marker.scripts.OnClick and not marker.scripts.OnUpdate)
+    assert(marker.text == nil and marker.height == 10 and marker.point[1] == "BOTTOMRIGHT" and marker.point[2] == chat)
+    assert(#marker.textures == 2 and marker.textures[2].height == 2)
+    assert(marker.textures[1].gradient[1] == "VERTICAL" and marker.textures[1].gradient[2].a == 0.6
+        and marker.textures[1].gradient[3].a == 0)
+    assert(marker.textures[2].colorTexture[1] == 0.4 and marker.textures[2].colorTexture[2] == 0.6
+        and marker.textures[2].colorTexture[3] == 0.8 and state.colorQueries == 1)
     assert(copy.width == 26 and copy.height == 26 and copy.point[2] == chat.buttonFrame and copy.point[3] == "BOTTOM" and copy.point[4] == 0 and copy.point[5] == -4)
     chat:AddMessage("at bottom"); assert(not marker:IsShown() and state.reads == 0)
     chat:SetScrollOffset(3); assert(not marker:IsShown())
     chat:AddMessage("|cff00ff00|Hplayer:Name|h[Name]|h|r: hello |Ticon:12|t https://example.com")
     assert(marker:IsShown() and state.reads == 0, "Unread tracking must never scan chat history")
-    marker.scripts.OnClick(); assert(chat:AtBottom() and not marker:IsShown())
+    assert(pulse.playing and pulse.plays == 1)
+    chat:AddMessage("another unread message")
+    assert(pulse.plays == 1, "Messages must not restart the pulse")
+    chat:ScrollToBottom(); assert(chat:AtBottom() and not marker:IsShown())
+    assert(not pulse.playing and pulse.stops == 1)
     chat:SetScrollOffset(2); chat:AddMessage(state.secret)
     test.addon.ChatTools.SetOption("unreadMarker", false); assert(not marker:IsShown())
+    assert(not pulse.playing)
     test.addon.ChatTools.SetOption("unreadMarker", true); assert(not marker:IsShown())
     chat:AddMessage("new"); assert(marker:IsShown()); chat:Clear(); assert(not marker:IsShown())
     chat:AddMessage("oldest"); chat:AddMessage("|cff00ff00|Hitem:1|h[Item]|h|r |A:atlas:12:12|a || test")
@@ -1930,8 +2044,84 @@ do
     warrior.login(); warrior.addon.ToggleOptions()
     assert(not warrior.env.MinnTinkersWoWFPetHappiness and warrior.env.MinnTinkersWoWFRangeEnabled.point[3] == -316)
     assert(not env.MinnTinkersWoWFChat_copyChat.checked and env.MinnTinkersWoWFChat_copyChat.enabled)
+    assert(env.MinnTinkersWoWFChat_unreadMarker.Text.text == "New-message glow")
+    assert(state.colorQueries == 1, "Messages and UI refreshes must not repeatedly request class colors")
 end
-print("PASS: event-driven unread marker/reset, on-demand plain-text copy/order/reuse/secret exclusion, independent toggles, native timestamps, Chat tab persistence and hunter-only Pet layout")
+print("PASS: class-colored click-through native pulse/reset without polling or restarts, cached native color, on-demand copy/order/reuse/secret exclusion, toggles, timestamps and tab persistence")
+
+do
+    local test, state = chatFixture(); test.login(); test.emit("PLAYER_ENTERING_WORLD")
+    local env, chat = test.env, state.chat
+    assert(test.addon.ChatHistory.IsAvailable() and chat.maximum == 200)
+    chat:SetMaxLines(500)
+    for index = 1, 250 do chat:AddMessage("message " .. index, 0.2, 0.3, 0.4) end
+    local linked = "[21:34] |Hplayer:Minnona|h[Minnona]|h: |Hitem:123|h[Item]|h |Hminntinkersurl:discord.gg/test|h[discord.gg/test]|h"
+    chat:AddMessage(linked, 0.4, 0.6, 0.8)
+    assert(state.reads == 0 and #test.timers == 0, "Saving must do no per-message reads or polling")
+    local count = #test.frames; test.addon.ChatHistory.Initialize(); assert(#test.frames == count)
+    test.emit("PLAYER_LOGOUT")
+    local saved = env.MinnTinkersWoWFCharDB.chatMessages.ChatFrame1
+    assert(#saved == 200 and saved[1][1] == "message 52" and saved[200][1] == linked and state.reads == 200)
+    assert(saved[200][2] == 0.4 and saved[200][3] == 0.6 and saved[200][4] == 0.8)
+    local reload, reloaded = chatFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
+    reloaded.chat:SetMaxLines(300)
+    local nativeScroll, nativeClear, nativeBackfill = reloaded.chat.SetScrollOffset, reloaded.chat.Clear, reloaded.chat.BackFillMessage
+    reloaded.chat:AddMessage("login message", 1, 0.5, 0)
+    reload.login(); reload.emit("PLAYER_ENTERING_WORLD")
+    assert(#reloaded.chat.lines == 201 and reloaded.chat.lines[1] == "message 52"
+        and reloaded.chat.lines[200] == linked and reloaded.chat.lines[201] == "login message")
+    assert(reloaded.chat.lineColors[200][1] == 0.4 and reloaded.chat.lineColors[200][3] == 0.8)
+    assert(reloaded.chat.SetScrollOffset == nativeScroll and reloaded.chat.Clear == nativeClear
+        and reloaded.chat.BackFillMessage == nativeBackfill)
+    assert(not reloaded.chat.children[2]:IsShown() and reloaded.reads == 0, "Restored messages must not become unread or be rescanned")
+    reload.emit("PLAYER_ENTERING_WORLD"); assert(#reloaded.chat.lines == 201, "Zoning must not replay history")
+    reload.emit("PLAYER_LOGOUT")
+    local relog, relogged = chatFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
+    relog.login(); relog.emit("PLAYER_ENTERING_WORLD")
+    assert(#relogged.chat.lines == 200 and relogged.chat.lines[199] == linked and relogged.chat.lines[200] == "login message")
+    relog.emit("PLAYER_LOGOUT")
+    local restart, restarted = chatFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
+    restart.login(); restart.emit("PLAYER_ENTERING_WORLD"); assert(#restarted.chat.lines == 200)
+    local other, otherState = chatFixture(env.MinnTinkersWoWFDB)
+    other.login(); other.emit("PLAYER_ENTERING_WORLD"); assert(#otherState.chat.lines == 0, "Visible history must remain per character")
+    restart.addon.ToggleOptions()
+    assert(restart.env.MinnTinkersWoWFChat_saveHistory.checked and restart.env.MinnTinkersWoWFChat_saveHistory.enabled)
+end
+print("PASS: bounded displayed chat snapshot, zero per-message work, formatted links/colors/order, startup messages kept, replay once, reload/relog/restart and character isolation")
+
+do
+    local test, state = chatFixture(); test.login(); test.emit("PLAYER_ENTERING_WORLD")
+    local env, chat = test.env, state.chat
+    env.FCF_OpenNewWindow(); env.FCF_OpenTemporaryWindow()
+    local combat = state.makeChat("ChatFrame2"); env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame2"
+    local closed = state.makeChat("ChatFrame5"); closed.active = false; env.CHAT_FRAMES[#env.CHAT_FRAMES + 1] = "ChatFrame5"
+    chat:AddMessage("visible", 0.1, 0.2, 0.3); chat:AddMessage(state.secret)
+    chat:AddMessage("secret color", state.secret, 1, 1); chat:AddMessage("invalid color", 2, 1, 1)
+    chat:AddMessage("defaults")
+    env.ChatFrame3:AddMessage("second permanent window", 1, 0, 0)
+    env.ChatFrame4:AddMessage("temporary"); combat:AddMessage("combat"); closed:AddMessage("closed")
+    assert(env.ChatFrame3.maximum == 200 and env.ChatFrame4.maximum == 120)
+    test.emit("PLAYER_LOGOUT")
+    local history = env.MinnTinkersWoWFCharDB.chatMessages
+    assert(#history.ChatFrame1 == 2 and history.ChatFrame1[1][1] == "visible"
+        and history.ChatFrame1[2][1] == "defaults" and history.ChatFrame1[2][2] == 1)
+    assert(history.ChatFrame3[1][1] == "second permanent window" and not history.ChatFrame2
+        and not history.ChatFrame4 and not history.ChatFrame5)
+    test.addon.ChatHistory.SetEnabled(false); chat:AddMessage("not saved"); test.emit("PLAYER_LOGOUT")
+    assert(env.MinnTinkersWoWFCharDB.chatMessages == history, "Disabling must preserve previously saved history")
+    local disabled, disabledState = chatFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
+    disabled.login(); disabled.emit("PLAYER_ENTERING_WORLD")
+    assert(#disabledState.chat.lines == 0 and disabledState.chat.maximum == 120)
+    disabled.addon.ChatHistory.SetEnabled(true); assert(disabledState.chat.maximum == 200)
+    assert(#disabledState.chat.lines == 0, "Enabling mid-session must not reinsert stale messages")
+    disabledState.chat:AddMessage("current session"); disabled.emit("PLAYER_LOGOUT")
+    assert(disabled.env.MinnTinkersWoWFCharDB.chatMessages.ChatFrame1[1][1] == "current session")
+    local malformed, malformedState = chatFixture(nil, {chatMessages = {ChatFrame1 = {"bad", {false}, {"bad color", "red"}, {"valid", 1, 1, 1}}}})
+    malformed.login(); malformed.emit("PLAYER_ENTERING_WORLD")
+    assert(#malformedState.chat.lines == 1 and malformedState.chat.lines[1] == "valid")
+    local unavailable = fixture(); unavailable.login(); assert(not unavailable.addon.ChatHistory.IsAvailable())
+end
+print("PASS: permanent windows only, late-window capacity, secret/color/malformed exclusion, independent toggle and saved-data retention, disabled restore and no stale replay on enable")
 
 
 do
@@ -1941,8 +2131,8 @@ do
     state.open(""); box.altArrows = true; box.scripts.OnEditFocusGained(box); assert(not box.altArrows)
     box:SetText("draft", true); arrow("UP")
     assert(box:GetText() == "draft", "Empty history must preserve input")
-    box:SetText("first", true); box:SendMessage()
-    state.open(""); box:SetText("second", true); box:SendMessage()
+    box:SetText("first", true); box.scripts.OnEnterPressed(box)
+    state.open(""); box:SetText("second", true); box.scripts.OnEnterPressed(box)
     state.open(""); box:SetChatType("WHISPER"); box:SetTellTarget("Minnona"); box:SetText("draft", true)
     arrow("UP"); assert(box:GetText() == "second")
     arrow("UP"); assert(box:GetText() == "first")
@@ -1973,14 +2163,51 @@ do
     test.combat(true); arrow("UP"); assert(box:GetText() == "entry 39")
     assert(#test.timers == 0 and box.scripts.OnUpdate == nil)
 end
+-- Protected commands remain saved but are never restored through addon text insertion.
+do
+    local entries = {"/target Older", "/s safe chat", "/cast Frostbolt", "ordinary message", "/TaR Black Ooze", "/use 13", "/zielen Localized"}
+    local test, state = chatFixture(nil, {chatHistory = entries}); test.login(); state.open("")
+    local box = state.box
+    local writes, setText = {}, box.SetText
+    function box:SetText(text, userInput)
+        writes[#writes + 1] = text
+        setText(self, text, userInput)
+    end
+    local function arrow(key) box.scripts.OnArrowPressed(box, key) end
+    arrow("UP"); assert(box:GetText() == "ordinary message")
+    arrow("UP"); assert(box:GetText() == "/s safe chat")
+    arrow("UP"); assert(box:GetText() == "/s safe chat")
+    arrow("DOWN"); assert(box:GetText() == "ordinary message")
+    arrow("DOWN"); assert(box:GetText() == "")
+    for _, text in ipairs(writes) do
+        local command = text:match("^(/[^%s]+)")
+        assert(not command or not test.env.IsSecureCmd(command), "History must not insert protected commands")
+    end
+    assert(#test.env.MinnTinkersWoWFCharDB.chatHistory == #entries, "Keep existing saved command history intact")
+    box:SetText("/target Black Ooze", true)
+    local count = #writes
+    arrow("UP"); arrow("DOWN")
+    assert(box:GetText() == "/target Black Ooze" and #writes == count, "Do not rewrite a manually typed protected command")
+    box.scripts.OnEscapePressed(box); state.open("")
+    assert(box:GetText() == "", "Escape must not restore a protected command through addon text")
+    local only, onlyState = chatFixture(nil, {chatHistory = {"/target Black Ooze", "/cast Frostbolt"}})
+    only.login(); onlyState.open("")
+    onlyState.box.scripts.OnArrowPressed(onlyState.box, "UP")
+    onlyState.box.scripts.OnArrowPressed(onlyState.box, "DOWN")
+    assert(onlyState.box:GetText() == "")
+    local reload, reloaded = chatFixture(nil, test.env.MinnTinkersWoWFCharDB)
+    reload.login(); reloaded.open(""); reloaded.box.scripts.OnArrowPressed(reloaded.box, "UP")
+    assert(reloaded.box:GetText() == "ordinary message")
+end
+print("PASS: protected command/alias history exclusions, bidirectional bounds, saved data preservation, direct typing, Escape cancellation and reload")
 print("PASS: actual Up/Down history traversal, both bounds, scratch draft/destination restoration, empty/cleared history, editing, modifiers/autocomplete, independent toggle, secrets and bounded storage")
 
 
 -- SavedVariables are character-specific; only sent messages survive a fresh Lua environment.
 do
     local test, state = chatFixture(); test.login()
-    state.open(""); state.box:SetText("first saved", true); state.box:SendMessage()
-    state.open(""); state.box:SetText("second saved", true); state.box:SendMessage()
+    state.open(""); state.box:SetText("first saved", true); state.box.scripts.OnEnterPressed(state.box)
+    state.open(""); state.box:SetText("second saved", true); state.box.scripts.OnEnterPressed(state.box)
     state.open(""); state.box:SetText("unsent draft", true); state.box.scripts.OnEscapePressed(state.box)
     local saved = test.env.MinnTinkersWoWFCharDB
     assert(#saved.chatHistory == 2 and saved.chatHistory[2] == "second saved")
@@ -2034,8 +2261,7 @@ do
     for _, text in ipairs(universal.fontStrings) do if text.text == "Hold Shift to handle quests manually." then note = text end end
     assert(y(heading(universal, "NPC interaction")) - (y(note) - 6 + 26) == 24)
     gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
-    gap(ui, "Pet", env.MinnTinkersWoWFCombat_width.parent)
-    gap(ui, "Range indicator", env.MinnTinkersWoWFPetHappiness)
+    gap(ui, "Range indicator", env.MinnTinkersWoWFCombat_width.parent)
     gap(chat, "Chat tools", env.MinnTinkersWoWFChat_preserveDraft)
     gap(chat, "Timestamps", env.MinnTinkersWoWFChat_unreadMarker)
     for _, rows in ipairs({
@@ -2046,10 +2272,273 @@ do
     }) do
         for index = 2, #rows do assert(y(rows[index]) - y(rows[index - 1]) == 32) end
     end
-    assert(y(env.MinnTinkersWoWFRangeResetPosition) + 26 == 576 and window.height == 670)
+    assert(y(env.MinnTinkersWoWFRangeResetPosition) + 26 == 502 and window.height == 670)
     assert(env.MinnTinkersWoWFRangeEnabled.Text.fontSize == 11 and heading(ui, "Range indicator").fontSize == 11)
     local originalSize = env.MinnTinkersWoWFRangeEnabled.Text.fontSize
     test.addon.ToggleOptions(); test.addon.ToggleOptions()
     assert(env.MinnTinkersWoWFRangeEnabled.Text.fontSize == originalSize, "Reopening must not keep increasing fonts")
 end
 print("PASS: equal category gaps, consistent control rows, hunter layout fits minimum size, slightly larger text and no font growth on reopen")
+
+local function buffFixture(saved, characterSaved, playerClass)
+    local test = fixture(saved, characterSaved)
+    local env = test.env
+    env.UIParent:SetSize(1920, 1080)
+    local secret = setmetatable({}, {__index = function() error("Read secret aura") end,
+        __tostring = function() error("Converted secret aura") end})
+    local state = {now = 100, aura = {expirationTime = 1600}, reads = 0, spellReads = 0,
+        known = true, secret = secret, casts = 0, protectedWrites = 0}
+    env.UnitClass = function() return playerClass or "Hunter", playerClass or "HUNTER" end
+    env.canaccessvalue = function(...)
+        for index = 1, select("#", ...) do
+            if rawequal(select(index, ...), secret) then return false end
+        end
+        return true
+    end
+    env.GetTime = function() return state.now end
+    env.UnitOnTaxi = function(unit)
+        assert(unit == "player")
+        return state.onTaxi or false
+    end
+    env.Enum.SpellBookSpellBank, env.Enum.SpellBookItemType = {Player = 0}, {Spell = 1}
+    local spells = {
+        [19506] = {spellID = 19506, name = "Localized Trueshot Aura", iconID = 1000},
+        [20906] = {spellID = 20906, name = "Localized Trueshot Aura", iconID = 1001},
+    }
+    env.C_Spell = {
+        GetSpellInfo = function(id) state.spellReads = state.spellReads + 1; return spells[id] end,
+        IsSpellPassive = function() return state.passive or false end,
+    }
+    env.C_SpellBook = {
+        GetNumSpellBookSkillLines = function() return 1 end,
+        GetSpellBookSkillLineInfo = function() return {itemIndexOffset = 0, numSpellBookItems = 2} end,
+        GetSpellBookItemInfo = function(slot)
+            local info = spells[slot == 1 and 19506 or 20906]
+            return {name = info.name, spellID = info.spellID, itemType = 1, isOffSpec = false}
+        end,
+        IsSpellKnown = function(id) return state.known and (id == 19506 or not state.onlyFirstRank) end,
+    }
+    env.C_UnitAuras = {GetAuraDataBySpellName = function(unit, name, filter)
+        assert(not env.InCombatLockdown(), "Aura data should not be queried in combat")
+        assert(unit == "player" and name == "Localized Trueshot Aura" and filter == "HELPFUL")
+        state.reads = state.reads + 1
+        return state.aura
+    end}
+    env.GameTooltip.SetSpellByID = function(self, id) self.spellID = id end
+    local create = env.CreateFrame
+    env.CreateFrame = function(kind, name, parent, template)
+        if template == "SecureActionButtonTemplate" then assert(not env.InCombatLockdown()) end
+        local f = create(kind, name, parent, template)
+        function f:RegisterUnitEvent(event, unit) self:RegisterEvent(event); self.unitFilter = unit end
+        if name == "MinnTinkersWoWFBuffReminder" then
+            state.button = f
+            f.attributes = {}
+            function f:SetAttribute(key, value)
+                assert(not env.InCombatLockdown(), "Secure attribute write in combat")
+                state.protectedWrites = state.protectedWrites + 1
+                self.attributes[key] = value
+            end
+            for _, method in ipairs({"SetShown", "SetSize", "SetPoint", "ClearAllPoints", "StopMovingOrSizing", "StartMoving"}) do
+                local native = f[method]
+                f[method] = function(self, ...)
+                    assert(not env.InCombatLockdown(), "Protected " .. method .. " in combat")
+                    state.protectedWrites = state.protectedWrites + 1
+                    return native(self, ...)
+                end
+                if method == "SetShown" then state.nativeShown = native end
+            end
+            function f:SetNormalAtlas(atlas) self.normalAtlas = atlas end
+            function f:SetPushedAtlas(atlas) self.pushedAtlas = atlas end
+            function f:GetHighlightTexture() return self.highlight end
+            local createTexture = f.CreateTexture
+            function f:CreateTexture(...)
+                local texture = createTexture(self, ...)
+                function texture:AddMaskTexture(mask) self.mask = mask end
+                return texture
+            end
+            function f:CreateMaskTexture(...) return createTexture(self, ...) end
+            local texture = createTexture(f)
+            function texture:SetAtlas(value) self.atlas = value end
+            f.highlight = texture
+            state.nativeClick = function(self)
+                if self.attributes.spell1 and self.attributes.type1 == "spell" then state.casts = state.casts + 1 end
+            end
+            f.scripts.OnClick = state.nativeClick
+        end
+        return f
+    end
+    env.RegisterStateDriver = function(f, name, condition)
+        assert(not env.InCombatLockdown())
+        assert(name == "visibility" and condition == "[combat] hide")
+        f.visibilityDriver = condition
+    end
+    function state.enterCombat()
+        test.combat(true)
+        if state.button then state.nativeShown(state.button, false) end -- Simulated native secure driver.
+        test.emit("PLAYER_REGEN_DISABLED")
+    end
+    function state.leaveCombat()
+        test.combat(false)
+        test.emit("PLAYER_REGEN_ENABLED")
+    end
+    return test, state
+end
+
+-- One deadline timer, no per-frame work; rebuff confirmation comes from UNIT_AURA.
+do
+    local test, state = buffFixture(); test.login()
+    local env, reminder, button = test.env, test.addon.BuffReminder, state.button
+    assert(reminder.IsAvailable() and button.attributes.spell1 == 20906 and button.attributes.unit == "player")
+    assert(button.template == "SecureActionButtonTemplate" and button.scripts.OnClick == state.nativeClick)
+    assert(button.normalAtlas == "gamepad-actionbar-squareslot-border-normal")
+    assert(button.pushedAtlas == "gamepad-actionbar-squareslot-border-pressed")
+    assert(button.highlight.atlas == "gamepad-actionbar-squareslot-border-hover" and button.icon.mask)
+    assert(not button.shown and not button.scripts.OnUpdate)
+    assert(#test.timers == 1 and test.timers[1].delay == 1440)
+    local reads, spellReads, writes = state.reads, state.spellReads, state.protectedWrites
+    for index = 1, 1000 do test.emit("UNIT_AURA", "party1") end
+    assert(state.reads == reads and #test.timers == 1)
+    for index = 1, 1000 do test.emit("UNIT_AURA", "player") end
+    assert(state.reads == reads + 1000 and #test.timers == 1 and state.spellReads == spellReads)
+    assert(state.protectedWrites == writes, "Unchanged aura updates must not redraw or rewrite the button")
+    state.now = 1540; test.flush(1440)
+    assert(button.shown and #test.timers == 1)
+    button.scripts.OnClick(button)
+    assert(state.casts == 1 and button.shown, "Clicking without an actual aura refresh must keep the reminder")
+    state.aura = {expirationTime = 3140}; test.emit("UNIT_AURA", "player")
+    assert(not button.shown and #test.timers == 2 and test.timers[2].delay == 1540)
+    state.aura = nil; test.emit("UNIT_AURA", "player")
+    assert(button.shown and test.timers[2].cancelled)
+    state.aura = {expirationTime = 0}; test.emit("UNIT_AURA", "player")
+    assert(not button.shown, "A permanent aura is active, not expiring")
+    state.aura = {expirationTime = state.now - 1}; test.emit("UNIT_AURA", "player"); assert(button.shown)
+    reminder.SetEnabled(false); assert(not button.shown)
+    reads = state.reads; test.emit("UNIT_AURA", "player"); assert(state.reads == reads)
+    reminder.SetEnabled(true); assert(button.shown)
+    local frames = #test.frames; reminder.Initialize(19506); assert(#test.frames == frames)
+    state.known = false; test.emit("SPELLS_CHANGED")
+    assert(not button.shown and button.attributes.spell1 == nil)
+    state.known, state.onlyFirstRank = true, true; test.emit("SPELLS_CHANGED")
+    assert(button.attributes.spell1 == 19506 and button.shown)
+    state.passive = true; test.emit("SPELLS_CHANGED"); assert(not button.shown)
+end
+print("PASS: localized learned buff ranks, native secure click/art, one threshold timer, no redundant redraws, unrelated-unit exclusion, missing/permanent buffs, confirmed refresh and disable cancellation")
+
+-- Protected frames stay untouched through combat, including reload and configuration changes.
+do
+    local test, state = buffFixture(); test.login()
+    local button, reminder = state.button, test.addon.BuffReminder
+    local timer = test.timers[1]
+    state.enterCombat(); assert(not button.shown and timer.cancelled)
+    local reads, writes = state.reads, state.protectedWrites
+    state.aura = nil
+    test.emit("UNIT_AURA", "player"); test.emit("SPELLS_CHANGED")
+    test.emit("DISPLAY_SIZE_CHANGED"); test.emit("UI_SCALE_CHANGED")
+    reminder.SetLocked(false); reminder.SetSize(64); reminder.ResetPosition(); reminder.SetEnabled(false)
+    button.scripts.OnDragStart(button); button.scripts.OnDragStop(button)
+    assert(state.reads == reads and state.protectedWrites == writes and not button.shown)
+    state.leaveCombat(); assert(button.width == 64 and not button.shown)
+    reminder.SetEnabled(true); assert(button.shown)
+    state.aura = {expirationTime = 1600}; test.emit("UNIT_AURA", "player")
+    assert(button.shown, "Unlocked mode previews an otherwise hidden reminder")
+    reminder.SetLocked(true); assert(not button.shown)
+    local reload, reloadState = buffFixture(nil, {buffReminder = {enabled = true, locked = true, size = 60}})
+    reload.combat(true); reload.login()
+    assert(not reloadState.button and #reload.timers == 0)
+    reloadState.leaveCombat()
+    assert(reloadState.button and reloadState.button.width == 60 and not reloadState.button.shown)
+    local secretTest, secretState = buffFixture(); secretState.aura = secretState.secret; secretTest.login()
+    assert(not secretState.button.shown and #secretTest.timers == 0)
+    secretState.aura = {expirationTime = secretState.secret}; secretTest.emit("UNIT_AURA", "player")
+    assert(not secretState.button.shown and #secretTest.timers == 0)
+    secretState.aura = nil; secretTest.emit("UNIT_AURA", secretState.secret)
+    assert(not secretState.button.shown)
+    secretTest.emit("UNIT_AURA", "player"); assert(secretState.button.shown)
+end
+print("PASS: secure combat hiding, deferred login/size/position/toggles, no combat aura queries or protected writes, post-combat revalidation and secret-data exclusion")
+
+-- Hunter category preserves old happiness settings and stores reminder geometry per character.
+do
+    local test, state = buffFixture({petHappinessBar = false}); test.login(); test.addon.ToggleOptions()
+    local env, window, reminder = test.env, test.env.MinnTinkersWoWFOptions, test.addon.BuffReminder
+    assert(window.numTabs == 4 and env.MinnTinkersWoWFOptionsTab4.text == "Hunter")
+    assert(env.MinnTinkersWoWFPetHappiness.parent == window.Inset.children[4])
+    assert(not env.MinnTinkersWoWFPetHappiness.checked and env.MinnTinkersWoWFRangeEnabled.parent == window.Inset.children[2])
+    env.MinnTinkersWoWFOptionsTab4.scripts.OnClick(env.MinnTinkersWoWFOptionsTab4)
+    assert(env.MinnTinkersWoWFDB.lastTab == "Hunter" and env.MinnTinkersWoWFBuffReminderEnabled.checked)
+    local unlock = env.MinnTinkersWoWFBuffReminderUnlocked
+    unlock:SetChecked(true); unlock.scripts.OnClick(unlock); assert(state.button.shown)
+    state.button.centerX, state.button.centerY = 30, 15
+    state.button.scripts.OnDragStop(state.button)
+    assert(reminder.GetSettings().x == 30 and reminder.GetSettings().y == 15)
+    env.MinnTinkersWoWFBuffReminderSize:SetValue(72); assert(state.button.width == 72)
+    env.MinnTinkersWoWFBuffReminderReset.scripts.OnClick()
+    assert(reminder.GetSettings().x == 0 and reminder.GetSettings().y == 0)
+    reminder.SetLocked(true)
+    local reload, reloadState = buffFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
+    reload.login(); reload.addon.ToggleOptions()
+    assert(reload.env.MinnTinkersWoWFOptions.selectedTab == 4 and reloadState.button.width == 72)
+    assert(not reload.env.MinnTinkersWoWFDB.petHappinessBar)
+    local mage, mageState = buffFixture(env.MinnTinkersWoWFDB, nil, "MAGE")
+    mage.login(); mage.addon.ToggleOptions()
+    assert(mage.env.MinnTinkersWoWFOptions.numTabs == 3 and not mage.env.MinnTinkersWoWFOptionsTab4)
+    assert(mage.env.MinnTinkersWoWFOptions.selectedTab == 1 and not mageState.button and mageState.reads == 0)
+    for _, frame in ipairs(mage.frames) do assert(not frame.events.UNIT_AURA, "Other classes must not subscribe to hunter reminders") end
+    local alt, altState = buffFixture(); alt.login(); assert(altState.button.width == 48)
+    local invalid, invalidState = buffFixture(nil, {buffReminder = {size = -100, x = math.huge, y = "invalid", enabled = true}})
+    invalid.login(); assert(invalidState.button.width == 24 and invalid.addon.BuffReminder.GetSettings().x == 0)
+    invalid.addon.BuffReminder.GetSettings().x = 9000
+    invalid.emit("DISPLAY_SIZE_CHANGED")
+    assert(invalid.addon.BuffReminder.GetSettings().x <= invalid.env.UIParent:GetWidth() / 2)
+end
+print("PASS: hunter-only tab/events, shared range retained, happiness setting preserved, reminder controls/drag/reset, per-character geometry and reload, unavailable-class fallback and invalid/offscreen positions")
+
+-- Flight paths temporarily suppress buffs; do not turn that into a rebuff prompt.
+do
+    local test, state = buffFixture(); test.login()
+    local button, reminder = state.button, test.addon.BuffReminder
+    local timer, reads = test.timers[1], state.reads
+    state.onTaxi, state.aura = true, nil
+    test.emit("PLAYER_CONTROL_LOST")
+    assert(not button.shown and timer.cancelled and state.reads == reads)
+    for index = 1, 100 do
+        test.emit("UNIT_AURA", "player")
+        test.emit("UNIT_FLAGS", "player")
+    end
+    reminder.SetLocked(false); reminder.SetSize(56)
+    assert(not button.shown and state.reads == reads and #test.timers == 1,
+        "Flight must suppress preview and aura queries without starting a replacement timer")
+    reminder.SetLocked(true)
+    state.onTaxi, state.aura = false, {expirationTime = 2000}
+    test.emit("PLAYER_CONTROL_GAINED")
+    assert(not button.shown and state.reads == reads + 1)
+    assert(#test.timers == 2 and test.timers[2].delay == 1840)
+    local queries = state.reads
+    test.emit("UNIT_FLAGS", "pet"); assert(state.reads == queries)
+    state.aura = nil; test.emit("UNIT_AURA", "player"); assert(button.shown)
+    state.onTaxi = true; test.emit("UNIT_FLAGS", "player"); assert(not button.shown)
+    test.emit("PLAYER_CONTROL_GAINED"); assert(not button.shown,
+        "A control event must use actual flight state")
+    state.onTaxi = false; test.emit("PLAYER_CONTROL_GAINED")
+    assert(button.shown, "A genuinely missing buff must still be reported after landing")
+    state.aura = {expirationTime = 2000}; test.emit("UNIT_AURA", "player"); assert(not button.shown)
+    test.emit("PLAYER_CONTROL_LOST"); assert(not button.shown,
+        "Other causes of control loss must not alter buff tracking")
+    local reload, reloadState = buffFixture(nil, {buffReminder = {enabled = true, locked = false}})
+    reloadState.onTaxi, reloadState.aura = true, nil
+    reload.login(); assert(not reloadState.button.shown and reloadState.reads == 0 and #reload.timers == 0)
+    reload.emit("PLAYER_ENTERING_WORLD"); assert(not reloadState.button.shown and reloadState.reads == 0)
+    reloadState.enterCombat()
+    local writes = reloadState.protectedWrites
+    reload.emit("PLAYER_CONTROL_GAINED"); reload.emit("UNIT_FLAGS", "player")
+    assert(reloadState.protectedWrites == writes and reloadState.reads == 0)
+    reloadState.leaveCombat(); assert(not reloadState.button.shown and reloadState.reads == 0)
+    reloadState.onTaxi, reloadState.aura = false, {expirationTime = 0}
+    reload.addon.BuffReminder.SetLocked(true)
+    reload.emit("PLAYER_CONTROL_GAINED"); assert(not reloadState.button.shown and #reload.timers == 0)
+    state.onTaxi = state.secret; test.emit("UNIT_FLAGS", "player")
+    assert(not button.shown and test.timers[#test.timers].cancelled)
+    state.onTaxi = false; test.emit("UNIT_FLAGS", "player")
+    assert(not button.shown and not test.timers[#test.timers].cancelled)
+end
+print("PASS: flight hiding/timer cancellation, no flight aura queries or preview, actual taxi-state checks, landing refresh/restoration, flight reload, unrelated flags, combat and secret state")

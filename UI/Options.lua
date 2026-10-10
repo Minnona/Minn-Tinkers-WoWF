@@ -143,6 +143,8 @@ local function CreateOptions()
 
     local pages = {}
     local categories = { "Universal", "UI", "Chat" }
+    local _, playerClass = UnitClass("player")
+    if playerClass == "HUNTER" then categories[#categories + 1] = "Hunter" end
     local function SelectTab(id)
         MinnTinkersWoWFDB.lastTab = categories[id]
         PanelTemplates_SetTab(window, id)
@@ -281,16 +283,7 @@ local function CreateOptions()
         format = function(value) return string.format("%d", value) end,
         tooltip = "Sets the width of the soft edge glow in UI units. The inner edge fades to transparent. Changes apply immediately, including during combat.",
     })
-    local _, playerClass = UnitClass("player")
     y = y + rowSpacing * 2 + rowHeight + sectionGap
-    if playerClass == "HUNTER" then
-        y = CreateSection(pages[2], y, "Pet")
-        checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWFPetHappiness", y, false,
-            "Pet happiness bar", "Replaces the hunter pet's happiness face with a thin red/yellow/green meter below its focus bar. The fill shows happiness reserve; the colored thirds are visual guides. Mouseover retains Blizzard's happiness, damage bonus and diet tooltip.",
-            function() return MinnTinkersWoWFDB.petHappinessBar end,
-            addon.PetHappinessBar.SetEnabled, addon.PetHappinessBar.IsAvailable)
-        y = y + rowHeight + sectionGap
-    end
     local rangeY = CreateSection(pages[2], y, "Range indicator")
     local range = addon.RangeIndicator
     local rangeEnabled = CreateCheck(pages[2], "MinnTinkersWoWFRangeEnabled", rangeY, false,
@@ -435,8 +428,8 @@ local function CreateOptions()
     spellSlot:HookScript("OnHide", HideSpellTooltip)
     y = CreateSection(pages[3], 16, "Chat input")
     for index, option in ipairs({
-        {key = "preserveDraft", label = "Keep unfinished messages", tooltip = "Escape unfocuses chat and keeps your draft for this session. Opening chat normally restores its text and destination. An explicit chat command starts a new message. Autocomplete keeps its native Escape behavior."},
-        {key = "arrowHistory", label = "Up/Down message history", tooltip = "Use plain Up and Down to browse the last 32 messages, saved per character across reloads and normal game exits. History is shared by your chat windows. Down past the newest restores your draft. Autocomplete keeps its native arrow behavior."},
+        {key = "preserveDraft", label = "Keep unfinished messages", tooltip = "Escape unfocuses chat and keeps your draft for this session. Protected commands such as /target and /cast are not restored. Opening chat normally restores its text and destination. An explicit chat command starts a new message. Autocomplete keeps its native Escape behavior."},
+        {key = "arrowHistory", label = "Up/Down message history", tooltip = "Protected commands such as /target, /cast and /use are skipped; type them directly. Use plain Up and Down to browse the last 32 messages, saved per character across reloads and normal game exits. History is shared by your chat windows. Down past the newest restores your draft. Autocomplete keeps its native arrow behavior."},
     }) do
         local key = option.key
         checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_" .. key, y, index == 2,
@@ -452,9 +445,13 @@ local function CreateOptions()
         function() return MinnTinkersWoWFDB.chat.copyChat end,
         function(value) addon.ChatTools.SetOption("copyChat", value) end, addon.ChatTools.IsAvailable)
     checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_unreadMarker", y + rowSpacing, false,
-        "New-message marker", "Shows a small New messages button when messages arrive while you are scrolled up. Click it to return to the bottom. Clears when you reach the bottom; scrolling speed stays native.",
+        "New-message glow", "Shows a thin pulsing glow in your character's class color along the bottom of chat when messages arrive while you are scrolled up. Clears when you reach the bottom. The glow does not intercept clicks.",
         function() return MinnTinkersWoWFDB.chat.unreadMarker end,
         function(value) addon.ChatTools.SetOption("unreadMarker", value) end, addon.ChatTools.IsAvailable)
+    checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_saveHistory", y + rowSpacing, true,
+        "Save chat history", "Keeps up to 200 displayed messages per permanent chat window, saved per character on reload or normal logout/exit and restored at the next login. Includes colors and links. Combat log, temporary windows and restricted messages are excluded. Game crashes may lose the latest messages.",
+        function() return MinnTinkersWoWFDB.chat.saveHistory end,
+        addon.ChatHistory.SetEnabled, addon.ChatHistory.IsAvailable)
     y = CreateSection(pages[3], y + rowSpacing + rowHeight + sectionGap, "Timestamps")
     local timestamps = CreateFrame("Button", "MinnTinkersWoWFChatTimestamps", pages[3], "UIPanelButtonTemplate")
     timestamps:SetSize(240, rowHeight)
@@ -488,6 +485,10 @@ local function CreateOptions()
     timestampHint:SetPoint("TOPLEFT", 16, -(y + rowSpacing + 6))
     timestampHint:SetText("Uses Blizzard's timestamp setting; applies to new messages.")
     pages[3]:HookScript("OnShow", RefreshTimestamps)
+    local RefreshHunterOptions
+    if pages[4] then
+        RefreshHunterOptions = addon.CreateHunterOptions(pages[4], CreateSection, CreateCheck, CreateSlider, IncreaseFont, checks)
+    end
     window:SetScript("OnShow", function()
         check:SetChecked(MinnTinkersWoWFDB.fastAutoloot)
         for _, control in ipairs(checks) do control:Refresh() end
@@ -499,6 +500,7 @@ local function CreateOptions()
         combatWidth:Refresh()
         RefreshRangeOptions()
         RefreshTimestamps()
+        if RefreshHunterOptions then RefreshHunterOptions() end
     end)
 end
 
