@@ -48,6 +48,5 @@ Range indicator examples using the hunter class color:
 Shown only for hunters. The range indicator stays in **UI**.
 
 - **Pet happiness:** thin red/yellow/green happiness reserve bar below pet focus, with native trim and tooltip.
-- **Trueshot Aura reminder:** a movable, resizable native spell button appears when the buff is missing or has one minute left. Click to buff; it hides after the aura refreshes. Hidden in combat and during flight paths, rechecked afterward. No sound; settings saved per character.
-
+- **Trueshot Aura reminder:** a movable, resizable native spell button appears when the buff is missing or has one minute left. Click to buff; it hides after the aura refreshes. Hidden in combat and during flight paths.
 Author: **Minnona (Northdale)**. Licensed under [GPLv3](LICENSE) (GPL-3.0-only).
