@@ -63,7 +63,7 @@ startup:SetScript("OnEvent", function(self, event, name)
             MinnTinkersWoWFDB.chatURLs = true
         end
         if type(MinnTinkersWoWFDB.chat) ~= "table" then MinnTinkersWoWFDB.chat = {} end
-        for key, value in pairs({preserveDraft = true, arrowHistory = true, copyChat = true, unreadMarker = true, saveHistory = true}) do
+        for key, value in pairs({preserveDraft = true, arrowHistory = true, copyChat = true, unreadMarker = true, saveHistory = true, enhancedShadow = true}) do
             if MinnTinkersWoWFDB.chat[key] == nil then MinnTinkersWoWFDB.chat[key] = value end
         end
         if MinnTinkersWoWFDB.petHappinessBar == nil then
@@ -84,6 +84,7 @@ startup:SetScript("OnEvent", function(self, event, name)
         addon.ChatInput.Initialize()
         addon.ChatTools.Initialize()
         addon.ChatHistory.Initialize()
+        addon.ChatShadow.Initialize()
         addon.RangeIndicator.Initialize()
         addon.PetHappinessBar.Initialize()
         local _, playerClass = UnitClass("player")

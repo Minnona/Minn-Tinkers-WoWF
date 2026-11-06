@@ -452,7 +452,12 @@ local function CreateOptions()
         "Save chat history", "Keeps up to 200 displayed messages per permanent chat window, saved per character on reload or normal logout/exit and restored at the next login. Includes colors and links. Combat log, temporary windows and restricted messages are excluded. Game crashes may lose the latest messages.",
         function() return MinnTinkersWoWFDB.chat.saveHistory end,
         addon.ChatHistory.SetEnabled, addon.ChatHistory.IsAvailable)
-    y = CreateSection(pages[3], y + rowSpacing + rowHeight + sectionGap, "Timestamps")
+    y = CreateSection(pages[3], y + rowSpacing + rowHeight + sectionGap, "Appearance")
+    checks[#checks + 1] = CreateCheck(pages[3], "MinnTinkersWoWFChat_enhancedShadow", y, false,
+        "Enhanced chat shadow", "Adds a stronger black shadow to chat text for readability. Turning it off restores the original shadow.",
+        function() return MinnTinkersWoWFDB.chat.enhancedShadow end,
+        addon.ChatShadow.SetEnabled, addon.ChatShadow.IsAvailable)
+    y = CreateSection(pages[3], y + rowHeight + sectionGap, "Timestamps")
     local timestamps = CreateFrame("Button", "MinnTinkersWoWFChatTimestamps", pages[3], "UIPanelButtonTemplate")
     timestamps:SetSize(240, rowHeight)
     IncreaseFont(timestamps:GetFontString())

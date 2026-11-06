@@ -184,7 +184,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -1820,6 +1820,17 @@ local function chatFixture(saved, characterSaved)
         local box = env.CreateFrame("EditBox", name .. "EditBox")
         chat.editBox, chat.lines, chat.offset = box, {}, 0
         chat.lineColors, chat.maximum, chat.active = {}, 120, true
+        chat.shadowColor, chat.shadowOffset, chat.shadowWrites = {0, 0, 0, 1}, {1, -1}, 0
+        function chat:GetShadowColor() return unpack(self.shadowColor) end
+        function chat:GetShadowOffset() return unpack(self.shadowOffset) end
+        function chat:SetShadowColor(...)
+            assert(env.canaccessvalue(...))
+            self.shadowColor = {...}; self.shadowWrites = self.shadowWrites + 1
+        end
+        function chat:SetShadowOffset(...)
+            assert(env.canaccessvalue(...))
+            self.shadowOffset = {...}; self.shadowWrites = self.shadowWrites + 1
+        end
         box.chatFrame, box.attributes, box.altArrows, box.history = chat, {chatType = "SAY", stickyType = "SAY"}, true, {}
         function box:GetAltArrowKeyMode() return self.altArrows end
         function box:SetAltArrowKeyMode(value) self.altArrows = value end
@@ -2123,6 +2134,53 @@ do
 end
 print("PASS: permanent windows only, late-window capacity, secret/color/malformed exclusion, independent toggle and saved-data retention, disabled restore and no stale replay on enable")
 
+do
+    local test, state = chatFixture()
+    local chat = state.chat
+    chat.shadowColor, chat.shadowOffset = {0.1, 0.2, 0.3, 0.4}, {0.5, -0.75}
+    local font, size, flags = chat:GetFont()
+    local nativeColor, nativeOffset = chat.SetShadowColor, chat.SetShadowOffset
+    test.login()
+    local module = test.addon.ChatShadow
+    assert(module.IsAvailable() and test.env.MinnTinkersWoWFDB.chat.enhancedShadow)
+    assert(chat.shadowColor[1] == 0 and chat.shadowColor[4] == 1
+        and chat.shadowOffset[1] == 2 and chat.shadowOffset[2] == -2 and chat.shadowWrites == 2)
+    assert(chat.SetShadowColor == nativeColor and chat.SetShadowOffset == nativeOffset, "Do not wrap native font methods")
+    local currentFont, currentSize, currentFlags = chat:GetFont()
+    assert(currentFont == font and currentSize == size and currentFlags == flags)
+    module.Initialize(); module.SetEnabled(true); assert(chat.shadowWrites == 2)
+    chat:SetFont("Changed.ttf", 17, "OUTLINE")
+    for index = 1, 1000 do chat:AddMessage("message " .. index, 0.2, 0.4, 0.6) end
+    assert(chat.shadowWrites == 2 and state.reads == 0 and #test.timers == 0)
+    assert(chat.lineColors[1][1] == 0.2 and not chat.scripts.OnUpdate)
+    test.combat(true); module.SetEnabled(false)
+    assert(chat.shadowColor[1] == 0.1 and chat.shadowColor[4] == 0.4
+        and chat.shadowOffset[1] == 0.5 and chat.shadowOffset[2] == -0.75)
+    assert(chat.font == "Changed.ttf" and chat.fontSize == 17 and chat.fontFlags == "OUTLINE")
+    module.SetEnabled(false); assert(chat.shadowWrites == 4)
+    test.env.FCF_OpenNewWindow(); assert(test.env.ChatFrame3.shadowWrites == 0)
+    module.SetEnabled(true)
+    assert(test.env.ChatFrame3.shadowOffset[1] == 2 and test.env.ChatFrame3.shadowWrites == 2)
+    test.env.FCF_OpenTemporaryWindow(); assert(test.env.ChatFrame4.shadowOffset[1] == 2)
+    module.SetEnabled(false)
+    assert(test.env.ChatFrame3.shadowOffset[1] == 1 and test.env.ChatFrame4.shadowOffset[2] == -1)
+    test.addon.ToggleOptions()
+    local check = test.env.MinnTinkersWoWFChat_enhancedShadow
+    assert(check.enabled and not check.checked and check.Text.text == "Enhanced chat shadow")
+    check:SetChecked(true); check.scripts.OnClick(check); assert(chat.shadowOffset[1] == 2)
+    local reload, reloaded = chatFixture(test.env.MinnTinkersWoWFDB); reload.login()
+    assert(reloaded.chat.shadowOffset[1] == 2)
+    reload.addon.ChatShadow.SetEnabled(false)
+    local disabled, disabledState = chatFixture(reload.env.MinnTinkersWoWFDB); disabled.login()
+    assert(disabledState.chat.shadowWrites == 0 and disabledState.chat.shadowOffset[1] == 1)
+    local secret, secretState = chatFixture()
+    secretState.chat.shadowOffset[1] = secretState.secret
+    secret.login(); assert(secretState.chat.shadowWrites == 0 and not secret.addon.ChatShadow.IsAvailable())
+    local unavailable = fixture(); unavailable.login(); unavailable.addon.ToggleOptions()
+    assert(not unavailable.env.MinnTinkersWoWFChat_enhancedShadow.enabled)
+end
+print("PASS: native chat shadow toggle/custom restoration, fonts/colors retained, size changes, no per-message work, combat, late windows, duplicate guards, UI/reload/disabled persistence and secret exclusion")
+
 
 do
     local test, state = chatFixture(); test.login()
@@ -2263,7 +2321,8 @@ do
     gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
     gap(ui, "Range indicator", env.MinnTinkersWoWFCombat_width.parent)
     gap(chat, "Chat tools", env.MinnTinkersWoWFChat_preserveDraft)
-    gap(chat, "Timestamps", env.MinnTinkersWoWFChat_unreadMarker)
+    gap(chat, "Appearance", env.MinnTinkersWoWFChat_unreadMarker)
+    gap(chat, "Timestamps", env.MinnTinkersWoWFChat_enhancedShadow)
     for _, rows in ipairs({
         {env.MinnTinkersWoWFFont_keybinds.parent, env.MinnTinkersWoWFFont_itemCount.parent, env.MinnTinkersWoWFFont_macroText.parent},
         {env.MinnTinkersWoWFCombat_enabled, env.MinnTinkersWoWFCombat_opacity.parent, env.MinnTinkersWoWFCombat_width.parent},

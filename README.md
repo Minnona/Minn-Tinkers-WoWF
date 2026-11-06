@@ -38,6 +38,7 @@ Range indicator examples using the hunter class color:
 - **Chat URLs:** click web addresses, including `discord.gg/invite`, to open a copy popup; press **Ctrl+C**.
 - **Copy chat:** toggle a copy window with the button beside chat input; use **Ctrl+A**, then **Ctrl+C**.
 - **Unread messages:** a thin class-colored glow pulses along the bottom of chat while new messages are waiting; clears when you reach the bottom.
+- **Chat shadow:** stronger black shadow makes chat text easier to read.
 - **Saved chat:** up to 200 displayed messages per permanent window, with colors and links, restored per character after reloads and normal logouts/game exits. Excludes combat log, temporary windows and restricted messages. Crashes may lose recent messages.
 - **Timestamps:** choose Blizzard's native timestamp format for new messages.
 
