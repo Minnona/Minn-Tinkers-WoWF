@@ -1,20 +1,20 @@
 local _, addon = ...
 
-function addon.CreateHunterOptions(page, CreateSection, CreateCheck, CreateSlider, IncreaseFont, checks)
+function addon.CreateHunterOptions(page, CreateSection, CreateCheck, CreateSlider, checks)
     local rowHeight, rowSpacing, sectionGap = 26, 32, 24
     local y = CreateSection(page, 16, "Pet")
     checks[#checks + 1] = CreateCheck(page, "MinnTinkersWoWFPetHappiness", y, false,
-        "Pet happiness bar", "Replaces the hunter pet's happiness face with a thin red/yellow/green meter below its focus bar. The fill shows happiness reserve; the colored thirds are visual guides. Mouseover retains Blizzard's happiness, damage bonus and diet tooltip.",
+        "Pet happiness bar", "Shows how much happiness your pet has in a bar below its focus.",
         function() return MinnTinkersWoWFDB.petHappinessBar end,
         addon.PetHappinessBar.SetEnabled, addon.PetHappinessBar.IsAvailable)
 
     y = CreateSection(page, y + rowHeight + sectionGap, "Trueshot Aura")
     local reminder = addon.BuffReminder
     local enabled = CreateCheck(page, "MinnTinkersWoWFBuffReminderEnabled", y, false,
-        "Clickable buff reminder", "Shows a native spell button when Trueshot Aura is missing or has one minute or less remaining. Left-click to buff yourself. Hides after the aura refreshes. No sound. Hidden in combat and during flight paths; rechecks afterward. Saved per character.",
+        "Clickable buff reminder", "Click to recast Trueshot Aura when it's missing or has a minute left. Hidden in combat and on flight paths.",
         function() return reminder.GetSettings().enabled end, reminder.SetEnabled, reminder.IsAvailable)
     local unlocked = CreateCheck(page, "MinnTinkersWoWFBuffReminderUnlocked", y, true,
-        "Unlock position", "Shows a preview while enabled and the spell is learned. Right-drag the reminder to move it; left-click still buffs. Position changes and resizing made in combat apply after combat.",
+        "Unlock position", "Right-drag the reminder to move it. Left-click still casts the buff.",
         function() return not reminder.GetSettings().locked end,
         function(value) reminder.SetLocked(not value) end, reminder.IsAvailable)
     checks[#checks + 1], checks[#checks + 2] = enabled, unlocked
@@ -23,12 +23,11 @@ function addon.CreateHunterOptions(page, CreateSection, CreateCheck, CreateSlide
         getValue = function() return reminder.GetSettings().size end,
         setValue = reminder.SetSize, isAvailable = reminder.IsAvailable,
         format = function(value) return string.format("%d", value) end,
-        tooltip = "Resizes the native buff button. Changes made in combat apply after combat. Saved per character.",
+        tooltip = "Sets the size of the reminder. Changes made in combat apply afterward.",
     })
-    local reset = CreateFrame("Button", "MinnTinkersWoWFBuffReminderReset", page, "UIPanelButtonTemplate")
-    reset:SetSize(120, rowHeight)
+    local reset = CreateFrame("Button", "MinnTinkersWoWFBuffReminderReset", page, "SharedButtonSmallTemplate")
+    reset:SetWidth(120)
     reset:SetPoint("TOPLEFT", 16, -(y + rowSpacing * 2))
-    IncreaseFont(reset:GetFontString())
     reset:SetText("Reset position")
     reset:SetScript("OnClick", reminder.ResetPosition)
     local function Refresh()

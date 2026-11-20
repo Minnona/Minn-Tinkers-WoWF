@@ -164,14 +164,14 @@ function module.SetTimestampFormat(value)
 end
 
 function module.Initialize()
-    if initialized or not (CHAT_FRAMES and canaccessvalue and hooksecurefunc) then return end
+    if initialized or not (CHAT_FRAMES and canaccessvalue and canaccessallvalues and hooksecurefunc) then return end
     if C_ClassColor and C_ClassColor.GetClassColor then
         local _, class = UnitClass("player")
         if canaccessvalue(class) and class then
             local color = C_ClassColor.GetClassColor(class)
             if color then
                 local r, g, b = color:GetRGB()
-                if canaccessvalue(r, g, b) then classR, classG, classB = r, g, b end
+                if canaccessallvalues(r, g, b) then classR, classG, classB = r, g, b end
             end
         end
     end

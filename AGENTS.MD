@@ -198,6 +198,17 @@ When rules conflict:
 
 The goal is the least code worth owning.
 
+## Player-facing writing
+
+Write for someone deciding whether to turn on an option or install an update. Use plain words and the names players see in WoW. Read it once as if you were explaining it in guild chat.
+
+- Give tooltips one short sentence when possible. Add a shortcut, requirement, or exception if it changes what the player needs to do.
+- Keep the README grouped by settings tab, with the download link and setup instructions easy to find.
+- Say what changed in-game in changelogs and release notes. Use clear commit subjects for changes players will see, since GitHub uses them to build the release notes.
+- Keep API names, event handling, storage details, and routine edge cases in developer notes. Cut filler and keep the remaining claims accurate.
+
+[avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) and [claudish-to-english](https://github.com/gvzdv/claudish-to-english) inform this style.
+
 ## Publishing
 
 Work locally. Push commits or publish GitHub updates only after the user explicitly approves them.

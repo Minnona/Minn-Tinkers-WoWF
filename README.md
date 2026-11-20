@@ -8,23 +8,22 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 
 ## Universal
 
-- **Fast autoloot:** skips the automatic loot window, with native fallback when needed.
-- **Camera distance:** adjustable maximum zoom-out limit, up to 4.0.
-- **Questing:** auto accept and turn in, skipping unlimited repeatables. Zero or one reward choice auto-completes; two or more require manual completion, with optional highest vendor-value preselection. Hold **Shift** to handle quests manually.
-- **Gossip:** skip an NPC's sole dialogue option when no quests are listed.
-- **Junk selling:** automatically sell grey items, respecting excluded bags.
+- **Fast autoloot** skips the loot window when Auto Loot is on.
+- **Camera distance** lets you zoom out farther, up to 4.0.
+- **Questing** accepts and turns in quests for you. Quests with multiple reward choices wait for you to turn them in. The addon can suggest the reward that sells for the most. Hold **Shift** to handle quests manually.
+- **Gossip** picks the only dialogue option when the NPC has no quests listed.
+- **Junk selling** sells grey items when you open a vendor. Hold **Shift** to skip it.
 
 <img src=".github/screenshots/universal.png" alt="Universal tab: looting, camera, questing and NPC interaction settings" width="560">
 
 ## UI
 
-- **Action-bar fonts:** separate sizes for keybinds, item counts and macro names.
-- **Combat indicator:** persistent red edge glow with adjustable opacity and width.
-- **Range indicator:** movable target range dot with adjustable size and opacity; choose white or your character's native class color when in range. Select a spell by name or drop it from the spellbook. Includes position reset and per-character settings.
+- Set separate sizes for **keybinds**, **item counts**, and **macro names** on the action bar.
+- **Combat indicator** adds a red glow around the screen while you're in combat.
+- **Bar visibility** lets you hide the bag bar or microbar.
+- **Range indicator** shows a movable dot that turns red when your target is out of range of your chosen spell. In range, it uses white or your class color.
 
-<img src=".github/screenshots/ui.png" alt="UI tab: action-bar fonts, combat glow and range indicator settings (earlier layout)" width="560">
-
-Pet settings shown in the screenshot have moved to **Hunter**.
+<img src=".github/screenshots/ui.png" alt="UI tab showing action-bar text, combat glow, range indicator, and bar visibility" width="560">
 
 Range indicator examples using the hunter class color:
 
@@ -34,20 +33,21 @@ Range indicator examples using the hunter class color:
 
 ## Chat
 
-- **Chat input:** Escape preserves unsent text for the current session; Up/Down recalls the last 32 sent messages, saved per character across reloads and normal exits. Protected commands such as `/target` are skipped; type them directly.
-- **Chat URLs:** click web addresses, including `discord.gg/invite`, to open a copy popup; press **Ctrl+C**.
-- **Copy chat:** toggle a copy window with the button beside chat input; use **Ctrl+A**, then **Ctrl+C**.
-- **Unread messages:** a thin class-colored glow pulses along the bottom of chat while new messages are waiting; clears when you reach the bottom.
-- **Chat shadow:** stronger black shadow makes chat text easier to read.
-- **Saved chat:** up to 200 displayed messages per permanent window, with colors and links, restored per character after reloads and normal logouts/game exits. Excludes combat log, temporary windows and restricted messages. Crashes may lose recent messages.
-- **Timestamps:** choose Blizzard's native timestamp format for new messages.
+- **Chat input** keeps your draft when you press Esc. Use Up and Down to recall recent messages. Type commands like `/target` directly.
+- With **Chat URLs**, click a link like `discord.gg/invite` and press **Ctrl+C** to copy it.
+- **Copy chat** adds a button beside the chat input to open a copy window.
+- **New-message glow** pulses in your class color when messages arrive while you're scrolled up.
+- **Enhanced chat shadow** adds a little more shadow to chat text.
+- **Save chat history** keeps recent chat after a reload or logout.
+- Use **Timestamps** to choose how the time appears on new messages.
 
 <img src=".github/screenshots/chat.png" alt="Chat tab: draft preservation, message history, URLs, copying, unread messages and timestamps" width="560">
 
 ## Hunter
 
-Shown only for hunters. The range indicator stays in **UI**.
+Shown only for hunters.
 
-- **Pet happiness:** thin red/yellow/green happiness reserve bar below pet focus, with native trim and tooltip.
-- **Trueshot Aura reminder:** a movable, resizable native spell button appears when the buff is missing or has one minute left. Click to buff; it hides after the aura refreshes. Hidden in combat and during flight paths.
+- **Pet happiness bar** shows how much happiness your pet has, just below its focus bar.
+- **Trueshot Aura reminder** gives you a button to recast the buff when it's missing or has a minute left. It stays hidden in combat and on flight paths.
+
 Author: **Minnona (Northdale)**. Licensed under [GPLv3](LICENSE) (GPL-3.0-only).

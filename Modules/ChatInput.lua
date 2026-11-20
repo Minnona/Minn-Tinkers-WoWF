@@ -27,7 +27,7 @@ local function Capture(editBox, state, userInput)
         return
     end
     local chatType, target, channel = editBox:GetChatType(), editBox:GetTellTarget(), editBox:GetAttribute("channelTarget")
-    if not canaccessvalue(chatType, target, channel) then
+    if not canaccessallvalues(chatType, target, channel) then
         state.current, state.draft = nil, nil
         return
     end
@@ -67,7 +67,7 @@ local function Attach(editBox)
         if not state.historyIndex then
             local text, chatType = self:GetText(), self:GetChatType()
             local target, channel = self:GetTellTarget(), self:GetAttribute("channelTarget")
-            if not canaccessvalue(text, chatType, target, channel) or type(text) ~= "string" or not CanRestoreText(text) then return end
+            if not canaccessallvalues(text, chatType, target, channel) or type(text) ~= "string" or not CanRestoreText(text) then return end
             state.historyDraft = {text = text, chatType = chatType, target = target, channel = channel}
             state.historyIndex = #history + 1
         end
@@ -136,7 +136,7 @@ end
 
 function module.Initialize()
     if initialized or not (ChatFrameUtil and ChatFrameUtil.OpenChat and ChatFrameUtil.ChooseBoxForSend
-        and ChatFrameUtil.GetChatFocusOverride and hooksecurefunc and canaccessvalue and CHAT_FRAMES) then return end
+        and ChatFrameUtil.GetChatFocusOverride and hooksecurefunc and canaccessvalue and canaccessallvalues and CHAT_FRAMES) then return end
     local saved = MinnTinkersWoWFCharDB.chatHistory
     history = {}
     if type(saved) == "table" then

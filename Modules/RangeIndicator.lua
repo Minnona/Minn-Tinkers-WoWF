@@ -22,7 +22,7 @@ local function CanTrack(spellID)
     local known = C_SpellBook.IsSpellKnown(spellID)
     local passive = C_Spell.IsSpellPassive(spellID)
     local hasRange = C_Spell.SpellHasRange(spellID)
-    return canaccessvalue(known, passive, hasRange) and known == true and not passive and hasRange == true
+    return canaccessallvalues(known, passive, hasRange) and known == true and not passive and hasRange == true
 end
 
 function module.GetSpellInfo()
@@ -50,7 +50,7 @@ end
 
 local function SetRange(value, checksRange)
     -- An invalid or restricted check must never appear as "in range".
-    if not canaccessvalue(value, checksRange) or not checksRange or type(value) ~= "boolean" then value = nil end
+    if not canaccessallvalues(value, checksRange) or not checksRange or type(value) ~= "boolean" then value = nil end
     if value ~= inRange then
         inRange = value
         RefreshDisplay()
@@ -215,7 +215,7 @@ function module.Initialize()
         and C_Spell.IsSpellPassive and C_Spell.GetSpellInfo and C_SpellBook and C_SpellBook.IsSpellKnown
         and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo
         and C_SpellBook.GetSpellBookItemInfo and Enum.SpellBookSpellBank and Enum.SpellBookItemType
-        and type(canaccessvalue) == "function" and GetCursorInfo and ClearCursor
+        and canaccessvalue and canaccessallvalues and GetCursorInfo and ClearCursor
         and MenuUtil and MenuUtil.CreateContextMenu) then return end
     settings.useClassColor = settings.useClassColor == true
     if C_ClassColor and C_ClassColor.GetClassColor then
@@ -224,7 +224,7 @@ function module.Initialize()
             local color = C_ClassColor.GetClassColor(class)
             if color then
                 local r, g, b = color:GetRGB()
-                if canaccessvalue(r, g, b) then classR, classG, classB = r, g, b end
+                if canaccessallvalues(r, g, b) then classR, classG, classB = r, g, b end
             end
         end
     end

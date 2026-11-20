@@ -10,7 +10,7 @@ local function Apply(chat)
     if not state then
         local r, g, b, a = chat:GetShadowColor()
         local x, y = chat:GetShadowOffset()
-        if not canaccessvalue(r, g, b, a, x, y) or type(r) ~= "number" or type(g) ~= "number"
+        if not canaccessallvalues(r, g, b, a, x, y) or type(r) ~= "number" or type(g) ~= "number"
             or type(b) ~= "number" or type(a) ~= "number" or type(x) ~= "number" or type(y) ~= "number" then return end
         state = {r = r, g = g, b = b, a = a, x = x, y = y, enabled = false}
         frames[chat] = state
@@ -19,7 +19,7 @@ local function Apply(chat)
     if state.enabled == enabled then return end
     if enabled then
         chat:SetShadowColor(0, 0, 0, 1)
-        chat:SetShadowOffset(2, -2)
+        chat:SetShadowOffset(1.5, -1.5)
     else
         chat:SetShadowColor(state.r, state.g, state.b, state.a)
         chat:SetShadowOffset(state.x, state.y)
@@ -41,7 +41,7 @@ function module.SetEnabled(value)
 end
 
 function module.Initialize()
-    if initialized or not (CHAT_FRAMES and canaccessvalue and hooksecurefunc) then return end
+    if initialized or not (CHAT_FRAMES and canaccessallvalues and hooksecurefunc) then return end
     ApplyAll()
     if FCF_OpenNewWindow then hooksecurefunc("FCF_OpenNewWindow", ApplyAll) end
     if FCF_OpenTemporaryWindow then hooksecurefunc("FCF_OpenTemporaryWindow", ApplyAll) end

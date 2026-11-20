@@ -63,6 +63,10 @@ startup:SetScript("OnEvent", function(self, event, name)
             MinnTinkersWoWFDB.chatURLs = true
         end
         if type(MinnTinkersWoWFDB.chat) ~= "table" then MinnTinkersWoWFDB.chat = {} end
+        if type(MinnTinkersWoWFDB.chat.textOutline) == "boolean" then
+            MinnTinkersWoWFDB.chat.enhancedShadow = MinnTinkersWoWFDB.chat.textOutline
+            MinnTinkersWoWFDB.chat.textOutline = nil
+        end
         for key, value in pairs({preserveDraft = true, arrowHistory = true, copyChat = true, unreadMarker = true, saveHistory = true, enhancedShadow = true}) do
             if MinnTinkersWoWFDB.chat[key] == nil then MinnTinkersWoWFDB.chat[key] = value end
         end
@@ -75,6 +79,7 @@ startup:SetScript("OnEvent", function(self, event, name)
         self:UnregisterEvent(event)
         addon.SetFastAutoloot(MinnTinkersWoWFDB.fastAutoloot)
         addon.ActionBarFonts.Initialize()
+        addon.BarVisibility.Initialize()
         addon.CameraDistance.Initialize()
         addon.Questing.Initialize()
         addon.GossipSkip.Initialize()

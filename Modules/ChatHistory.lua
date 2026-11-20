@@ -5,7 +5,7 @@ local initialized = false
 local limit = 200
 
 local function Message(text, r, g, b)
-    if not canaccessvalue(text, r, g, b) or type(text) ~= "string" or text == "" then return end
+    if not canaccessallvalues(text, r, g, b) or type(text) ~= "string" or text == "" then return end
     r, g, b = r or 1, g or 1, b or 1
     if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number"
         or not (r >= 0 and r <= 1 and g >= 0 and g <= 1 and b >= 0 and b <= 1) then return end
@@ -76,7 +76,7 @@ function module.SetEnabled(value)
 end
 
 function module.Initialize()
-    if initialized or not (FCF_IterateActiveChatWindows and canaccessvalue) then return end
+    if initialized or not (FCF_IterateActiveChatWindows and canaccessvalue and canaccessallvalues) then return end
     if type(MinnTinkersWoWFCharDB.chatMessages) ~= "table" then MinnTinkersWoWFCharDB.chatMessages = {} end
     local events = CreateFrame("Frame")
     events:RegisterEvent("PLAYER_ENTERING_WORLD")

@@ -1,4 +1,30 @@
 local root = assert(arg[1], "Pass the addon directory")
+local function MockValueAccess(env, accessible)
+    env.canaccessvalue = function(...)
+        assert(select("#", ...) == 1, "Use canaccessallvalues to check multiple values")
+        return accessible(...)
+    end
+    env.canaccessallvalues = function(...)
+        for index = 1, select("#", ...) do
+            if not accessible((select(index, ...))) then return false end
+        end
+        return true
+    end
+end
+
+local function IsSelected(env, id)
+    local window = env.MinnTinkersWoWFOptions
+    for index, page in ipairs(window.Inset.children) do
+        local tab = env["MinnTinkersWoWFOptionsTab" .. index]
+        if tab.checked ~= (index == id) or page:IsShown() ~= (index == id) then return false end
+    end
+    return window.Inset.children[id] ~= nil
+end
+
+local function ClickTab(tab)
+    tab.scripts.OnMouseUp(tab, "LeftButton", true)
+end
+
 local function fixture(saved, characterSaved)
     local env = setmetatable({}, { __index = _G })
     env._G = env
@@ -6,21 +32,26 @@ local function fixture(saved, characterSaved)
     local slots, lootAction = {}, nil
     local addon = {}
     local combat = false
+    local emit
     local camera = { value = 1.9, cap = 4.0, writes = 0 }
     env.C_CVar = {
         GetCVar = function() return camera.value and tostring(camera.value) end,
         GetCVarInfo = function()
             return camera.value and tostring(camera.value), "1.9", false, false, camera.locked, camera.secure, camera.readOnly
         end,
-        SetCVar = function(_, value)
+        SetCVar = function(name, value)
             camera.writes = camera.writes + 1
             if camera.reject then return false end
-            camera.value = math.min(camera.cap, math.max(1, tonumber(value)))
+            local accepted = math.min(camera.cap, math.max(1, tonumber(value)))
+            local changed = camera.value ~= accepted
+            camera.value = accepted
+            if changed and emit then emit("CVAR_UPDATE", name, tostring(accepted)) end
             return true
         end,
     }
     env.InCombatLockdown = function() return combat end
     env.issecretvalue = function() return false end
+    env.NORMAL_FONT_COLOR = {GetRGB = function() return 1, 0.82, 0 end}
     env.CreateColor = function(r, g, b, a) return {r = r, g = g, b = b, a = a} end
     env.UnitClass = function() return "Hunter", "HUNTER" end
     env.MinnTinkersWoWFDB = saved
@@ -67,10 +98,12 @@ local function fixture(saved, characterSaved)
         function f:IsShown() return self.shown end
         function f:GetName() return self.name end
         function f:SetPoint(...) self.point = {...} end
+        function f:SetClampRectInsets(...) self.clamp = {...} end
         function f:GetWidth() return self.width or 144 end
         function f:GetCenter() return self.centerX or 0, self.centerY or 0 end
         function f:GetEffectiveScale() return self.scale or 1 end
         function f:SetID(id) self.id = id end
+        function f:StartSizing(edge, fromMouse) self.sizing = {edge, fromMouse} end
         function f:SetSize(width, height) self.width, self.height = width, height end
         function f:GetSize() return self.width, self.height end
         function f:SetWidth(width) self.width = width end
@@ -107,20 +140,27 @@ local function fixture(saved, characterSaved)
         function f:SetMaxLines(value) self.maxLines = value end
         function f:SetFocus() self.focus = true end
         function f:ClearFocus() self.focus = false end
+        function f:SetFontObject(value) self.fontObject = value end
         function f:SetFontHeight(value) self.fontSize = value end
         function f:SetTextColor(...) self.color = {...} end
         function f:SetTexture(value) self.texture = value end
         function f:GetStringWidth() return #self.text * 7 end
         function f:SetChecked(value) self.checked = value end
         function f:GetChecked() return self.checked end
-        function f:CreateFontString(name)
+        function f:CreateFontString(name, _, fontObject)
             local text = frame(name)
+            text.fontObject = fontObject
             self.fontStrings = self.fontStrings or {}
             self.fontStrings[#self.fontStrings + 1] = text
             if name then env[name] = text end
             return text
         end
-        function f:CreateTexture() return frame() end
+        function f:CreateTexture()
+            local texture = frame()
+            function texture:SetHorizTile() end
+            function texture:SetVertTile() end
+            return texture
+        end
         return f
     end
     env.UIParent = frame()
@@ -135,13 +175,39 @@ local function fixture(saved, characterSaved)
         if parent then parent.children[#parent.children + 1] = f end
         frames[#frames + 1] = f
         if name then env[name] = f end
-        if template == "ButtonFrameTemplate" then f.Inset = frame(); f.children[#f.children + 1] = f.Inset end
-        if template == "UICheckButtonTemplate" then f.Text = frame() end
+        if template == "ButtonFrameTemplate" then
+            f.Inset = frame(); f.children[#f.children + 1] = f.Inset
+            f.Inset.Bg = frame()
+            f.CloseButton = frame()
+            f.CloseButton:SetScript("OnClick", function(self)
+                local continueHide = not f.onCloseCallback or f.onCloseCallback(self)
+                if continueHide then env.HideUIPanel(f) end
+            end)
+        end
+        if template == "CheckboxWithLabelTemplate" then
+            f.Text = frame()
+            f.Text.fontObject = "GameFontNormalSmall"
+        end
+        if template == "LargeSideTabButtonTemplate" then
+            f.Icon = frame()
+            f:SetSize(52, 54)
+            function f:SetFillToInterior(value) self.fillToInterior = value end
+            function f:SetCustomOnMouseUpHandler(handler)
+                self:SetScript("OnMouseUp", handler)
+            end
+        end
+        if template == "WowStyle1DropdownTemplate" then
+            f.OverrideText = f.SetText
+            function f:SetupMenu(generator) self.menuGenerator = generator end
+        end
         return f
     end
     env.ButtonFrameTemplate_HideButtonBar = function() end
-    env.PanelTemplates_SetNumTabs = function(f, count) f.numTabs = count end
-    env.PanelTemplates_SetTab = function(f, id) f.selectedTab = id end
+    env.HideUIPanel = function(f)
+        assert(not combat, "Blizzard panel close path is blocked in combat")
+        env.nativePanelHideCalls = (env.nativePanelHideCalls or 0) + 1
+        f:Hide()
+    end
     env.hooksecurefunc = function(object, method, hook)
         if type(object) == "string" then object, method, hook = env, object, method end
         local original = object[method]
@@ -178,13 +244,13 @@ local function fixture(saved, characterSaved)
         timers[#timers + 1] = timer
         return timer
     end }
-    local function emit(event, ...)
+    emit = function(event, ...)
         if env.LootFrame.events[event] then env.LootFrame.OnEvent(env.LootFrame, event, ...) end
         local listeners = {}
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -269,9 +335,16 @@ f.emit("LOOT_READY", true); assert(#f.requests == 0 and #f.messages == 1)
 f = fixture(); f.login(); assert(not f.env.MinnTinkersWoWFOptions)
 f.env.SlashCmdList.MINNTINKERSWOWF()
 local window, check = f.env.MinnTinkersWoWFOptions, f.env.MinnTinkersWoWFFastAutoloot
-assert(window:IsShown() and window.title == "Minn Tinkers WoWF")
-assert(window.portrait == f.addon.icon and window.selectedTab == 1 and window.numTabs == 4)
+assert(window:IsShown() and window.title == "Minn Tinkers WoWF - Universal")
+assert(window.portrait == f.addon.icon and IsSelected(f.env, 1) and #window.Inset.children == 4)
 assert(window.Inset.children[1]:IsShown() and not window.Inset.children[2]:IsShown())
+local firstTab, secondTab = f.env.MinnTinkersWoWFOptionsTab1, f.env.MinnTinkersWoWFOptionsTab2
+assert(firstTab.template == "LargeSideTabButtonTemplate" and firstTab.point[3] == "TOPRIGHT")
+assert(secondTab.point[2] == firstTab and secondTab.point[3] == "BOTTOMLEFT" and window.clamp[2] == firstTab:GetWidth())
+secondTab.scripts.OnMouseUp(secondTab, "RightButton", true)
+secondTab.scripts.OnMouseUp(secondTab, "LeftButton", false)
+assert(IsSelected(f.env, 1))
+assert(check.template == "CheckboxWithLabelTemplate")
 assert(f.env.UISpecialFrames[1] == window:GetName() and check:GetChecked())
 check:SetChecked(false); check.scripts.OnClick(check)
 assert(f.env.MinnTinkersWoWFDB.fastAutoloot == false and f.env.LootFrame:IsEventRegistered("LOOT_OPENED"))
@@ -321,8 +394,8 @@ assert(select(2, button.Name:GetFont()) == 9 and button.Name:GetHeight() == 9)
 
 -- UI tabs and slider settings survive reopen and reload.
 f.env.SlashCmdList.MINNTINKERSWOWF()
-f.env.MinnTinkersWoWFOptionsTab2.scripts.OnClick(f.env.MinnTinkersWoWFOptionsTab2)
-assert(f.env.MinnTinkersWoWFOptions.selectedTab == 2)
+ClickTab(f.env.MinnTinkersWoWFOptionsTab2)
+assert(IsSelected(f.env, 2))
 assert(not f.env.MinnTinkersWoWFOptions.Inset.children[1]:IsShown() and f.env.MinnTinkersWoWFOptions.Inset.children[2]:IsShown())
 f.env.MinnTinkersWoWFFont_keybinds:SetValue(7)
 assert(f.env.MinnTinkersWoWFDB.actionbarFonts.keybinds == 7 and select(2, button.HotKey:GetFont()) == 17)
@@ -344,8 +417,9 @@ f.env.SlashCmdList.MINNTINKERSWOWF()
 local cameraSlider, resize = f.env.MinnTinkersWoWFCameraDistance, f.env.MinnTinkersWoWFResize
 window = f.env.MinnTinkersWoWFOptions
 assert(cameraSlider.value == 1.9 and cameraSlider.enabled and f.camera.writes == 0)
-assert(window.resizable and window.width == 700 and window.height == 670)
-assert(table.concat(resize.bounds, ",") == "560,670,1100,800")
+assert(window.resizable and window.width == 560 and window.height == 670)
+assert(table.concat(resize.bounds, ",") == "560,670,560,800")
+assert(window.onResizeStartCallback(resize) == false and window.sizing[1] == "BOTTOM" and window.sizing[2])
 assert(f.addon.CameraDistance.max == 4.0)
 cameraSlider:SetValue(4.0)
 assert(f.camera.value == 4.0 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 4.0)
@@ -358,10 +432,11 @@ cameraSlider:SetValue(4.0)
 assert(cameraSlider.value == 2.4 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.4)
 f.camera.reject = true
 assert(not f.addon.CameraDistance.SetFactor(2) and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.4)
-window:SetSize(850, 600); resize.resizeStopped(window)
-assert(f.env.MinnTinkersWoWFDB.windowWidth == 850 and f.env.MinnTinkersWoWFDB.windowHeight == 600)
+window:SetHeight(740); resize.resizeStopped(window)
+assert(f.env.MinnTinkersWoWFDB.windowWidth == nil and f.env.MinnTinkersWoWFDB.windowHeight == 740)
+f.env.MinnTinkersWoWFDB.windowWidth = 1100 -- Ignore a saved width from the older resizable window.
 reload = fixture(f.env.MinnTinkersWoWFDB); reload.login(); reload.env.SlashCmdList.MINNTINKERSWOWF()
-assert(reload.camera.value == 2.4 and reload.env.MinnTinkersWoWFOptions.width == 850 and reload.env.MinnTinkersWoWFOptions.height == 670)
+assert(reload.camera.value == 2.4 and reload.env.MinnTinkersWoWFOptions.width == 560 and reload.env.MinnTinkersWoWFOptions.height == 740)
 
 -- Restricted/missing CVars remain untouched, and programmatic UI refresh does not write.
 for _, restriction in ipairs({"locked", "secure", "readOnly"}) do
@@ -374,7 +449,69 @@ f = fixture(); f.env.C_CVar = nil; f.login(); f.env.SlashCmdList.MINNTINKERSWOWF
 assert(not f.env.MinnTinkersWoWFCameraDistance.enabled)
 f = fixture({windowWidth = 100, windowHeight = 900}); f.login(); f.env.SlashCmdList.MINNTINKERSWOWF()
 assert(f.env.MinnTinkersWoWFOptions.width == 560 and f.env.MinnTinkersWoWFOptions.height == 800)
-print("PASS: loot/font regressions, camera bounds/readback/persistence/restrictions, larger resizable window, saved size and UI refresh without writes")
+print("PASS: loot/font regressions, camera bounds/readback/persistence/restrictions, vertical-only resizing, saved size and UI refresh without writes")
+
+do
+    local test = fixture({cameraMaxFactor = 4}); test.login()
+    local env, camera, module = test.env, test.camera, test.addon.CameraDistance
+    local cvar = "cameraDistanceMaxZoomFactor"
+    local nativeSet = env.C_CVar.SetCVar
+    module.Initialize(); assert(camera.writes == 1)
+    env.C_CVar.SetCVar(cvar, "2.6")
+    assert(camera.value == 4 and camera.writes == 3 and env.MinnTinkersWoWFDB.cameraMaxFactor == 4)
+    local writes = camera.writes
+    for _ = 1, 100 do test.emit("CVAR_UPDATE", cvar, "4") end
+    test.emit("CVAR_UPDATE", "unrelatedSetting", "0")
+    assert(camera.writes == writes and #test.timers == 0, "Stable or unrelated events must not write or poll")
+    camera.value = 2.6; test.emit("CVAR_UPDATE", cvar:lower(), "2.6"); assert(camera.value == 4)
+    module.SetFactor(3.2)
+    assert(camera.value == 3.2 and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2, "Slider changes must replace the enforced preference")
+    test.combat(true); env.C_CVar.SetCVar(cvar, "2.6"); assert(camera.value == 3.2)
+    camera.value = 2.6; test.emit("PLAYER_ENTERING_WORLD"); assert(camera.value == 3.2)
+    for _, restriction in ipairs({"locked", "secure", "readOnly"}) do
+        camera[restriction] = true; camera.value = 2.6; writes = camera.writes
+        test.emit("CVAR_UPDATE", cvar, "2.6")
+        assert(camera.writes == writes and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2)
+        camera[restriction] = false
+    end
+    camera.reject = true; writes = camera.writes
+    test.emit("CVAR_UPDATE", cvar, "2.6")
+    assert(camera.writes == writes + 1 and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2)
+    camera.reject = false
+    -- Simulate another synchronous listener immediately undoing our restore.
+    local external = false
+    env.C_CVar.SetCVar = function(name, value)
+        local result = nativeSet(name, value)
+        if not external then
+            external = true
+            nativeSet(name, "2.6")
+            external = false
+        end
+        return result
+    end
+    writes = camera.writes
+    test.emit("CVAR_UPDATE", cvar, "2.6")
+    assert(camera.writes <= writes + 2 and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2,
+        "Conflicting listeners must not recurse or replace the saved preference")
+    local untouched = fixture(); untouched.login(); untouched.camera.value = 2.6
+    untouched.emit("CVAR_UPDATE", cvar, "2.6"); untouched.emit("PLAYER_ENTERING_WORLD")
+    assert(untouched.camera.writes == 0, "No camera preference means no override")
+end
+print("PASS: camera preference overrides external changes, ignores stable/unrelated events, follows slider changes, respects restrictions and avoids recursive writes without polling")
+
+do
+    local test = fixture(); test.login(); test.addon.ToggleOptions()
+    local env, window = test.env, test.env.MinnTinkersWoWFOptions
+    test.combat(true)
+    window:SetHeight(720)
+    window.CloseButton.scripts.OnClick(window.CloseButton)
+    assert(not window:IsShown() and env.nativePanelHideCalls == nil)
+    assert(env.MinnTinkersWoWFDB.windowWidth == nil and env.MinnTinkersWoWFDB.windowHeight == 720)
+    test.addon.ToggleOptions(); assert(window:IsShown())
+    test.combat(false); window.CloseButton.scripts.OnClick(window.CloseButton)
+    assert(not window:IsShown() and env.nativePanelHideCalls == nil)
+end
+print("PASS: options close button uses the native callback to hide the addon window in and out of combat, preserving size and reopen behavior")
 
 local function questFixture(saved)
     local f = fixture(saved)
@@ -600,16 +737,16 @@ assert(f.env.GameTooltip:IsShown() and f.env.GameTooltip.description:find("/minn
 minimap.scripts.OnLeave(minimap); assert(not f.env.GameTooltip:IsShown())
 minimap.scripts.OnClick(minimap)
 window = f.env.MinnTinkersWoWFOptions
-assert(window:IsShown() and window.selectedTab == 1)
-f.env.MinnTinkersWoWFOptionsTab2.scripts.OnClick(f.env.MinnTinkersWoWFOptionsTab2)
+assert(window:IsShown() and IsSelected(f.env, 1))
+ClickTab(f.env.MinnTinkersWoWFOptionsTab2)
 assert(f.env.MinnTinkersWoWFDB.lastTab == "UI")
 minimap.scripts.OnClick(minimap); assert(not window:IsShown())
-f.env.SlashCmdList.MINNTINKERSWOWF(); assert(window:IsShown() and window.selectedTab == 2)
+f.env.SlashCmdList.MINNTINKERSWOWF(); assert(window:IsShown() and IsSelected(f.env, 2))
 reload = fixture(f.env.MinnTinkersWoWFDB); reload.login(); reload.env.SlashCmdList.MINNTINKERSWOWF()
-assert(reload.env.MinnTinkersWoWFOptions.selectedTab == 2)
+assert(IsSelected(reload.env, 2))
 assert(reload.env.MinnTinkersWoWFOptions.Inset.children[2]:IsShown())
 f = fixture({lastTab = "Removed category"}); f.login(); f.env.SlashCmdList.MINNTINKERSWOWF()
-assert(f.env.MinnTinkersWoWFOptions.selectedTab == 1 and f.env.MinnTinkersWoWFDB.lastTab == "Universal")
+assert(IsSelected(f.env, 1) and f.env.MinnTinkersWoWFDB.lastTab == "Universal")
 print("PASS: /minn and minimap share one lazy window; tooltip cleanup, tab reopen/reload persistence and invalid-tab fallback")
 
 -- Drag geometry follows the real minimap radius and scaled cursor, then stops updating.
@@ -704,7 +841,10 @@ print("PASS: combat enter/leave, live enable/opacity/width, combat reload, saved
 local function gossipFixture(saved)
     local test = fixture(saved)
     local env = test.env
-    local state = {options = {{gossipOptionID = 42, status = 0}}, available = {}, active = {}, shift = false, selected = {}}
+    local state = {options = {{gossipOptionID = 42, orderIndex = 3, status = 0}}, available = {}, active = {}, shift = false, selected = {}}
+    local restricted = newproxy()
+    state.restricted = restricted
+    MockValueAccess(env, function(value) return not rawequal(value, restricted) end)
     env.GossipFrame = env.CreateFrame("Frame"); env.GossipFrame:Show()
     env.Enum.GossipOptionStatus = {Available = 0, Unavailable = 1, Locked = 2, AlreadyComplete = 3}
     env.IsShiftKeyDown = function() return state.shift end
@@ -712,7 +852,7 @@ local function gossipFixture(saved)
         GetOptions = function() return state.options end,
         GetAvailableQuests = function() return state.available end,
         GetActiveQuests = function() return state.active end,
-        SelectOption = function(...)
+        SelectOptionByIndex = function(...)
             assert(select("#", ...) == 1, "Must preserve native confirmation")
             state.selected[#state.selected + 1] = (...)
         end,
@@ -721,10 +861,19 @@ local function gossipFixture(saved)
     return test, state
 end
 f, gossip = gossipFixture(); f.emit("GOSSIP_SHOW")
-assert(#gossip.selected == 1 and gossip.selected[1] == 42)
+assert(#gossip.selected == 1 and gossip.selected[1] == 3)
 f.emit("GOSSIP_SHOW"); assert(#gossip.selected == 1)
-gossip.options[1].gossipOptionID = 43; f.emit("GOSSIP_SHOW"); assert(gossip.selected[2] == 43)
+gossip.options[1].gossipOptionID = 43; f.emit("GOSSIP_SHOW"); assert(gossip.selected[2] == 3)
 f.emit("GOSSIP_CLOSED"); f.emit("GOSSIP_SHOW"); assert(#gossip.selected == 3)
+f, gossip = gossipFixture()
+gossip.options = {{orderIndex = 0, status = 0}}
+f.emit("GOSSIP_SHOW"); f.emit("GOSSIP_SHOW")
+assert(#gossip.selected == 1 and gossip.selected[1] == 0, "A sole row without an ID still selects by its native index")
+f.emit("GOSSIP_CLOSED"); f.emit("GOSSIP_SHOW"); assert(#gossip.selected == 2)
+for _, key in ipairs({"orderIndex", "gossipOptionID", "status"}) do
+    f, gossip = gossipFixture(); gossip.options[1][key] = gossip.restricted
+    f.emit("GOSSIP_SHOW"); assert(#gossip.selected == 0)
+end
 f, gossip = gossipFixture(); gossip.options[2] = {gossipOptionID = 43, status = 0}
 f.emit("GOSSIP_SHOW"); assert(#gossip.selected == 0)
 gossip.options = {}; f.emit("GOSSIP_SHOW"); assert(#gossip.selected == 0)
@@ -966,7 +1115,7 @@ local function chatFixture(saved)
     local test = fixture(saved)
     local env = test.env
     local filters, handlers, popups = {}, {}, {}
-    env.canaccessvalue = function() return true end
+    MockValueAccess(env, function() return true end)
     env.CLOSE = "Close"
     env.StaticPopupDialogs = {}
     env.ChatFrameUtil = {
@@ -1055,7 +1204,7 @@ do
     local args = pack(filter(nil, "CHAT_MSG_WHISPER", "example.com", "Sender", nil, 42, nil))
     assert(args.n == 6 and args[3] == "Sender" and args[4] == nil and args[5] == 42 and args[6] == nil)
     local secret = setmetatable({}, {__index = function() error("Read secret text") end})
-    test.env.canaccessvalue = function(value) return not rawequal(value, secret) end
+    MockValueAccess(test.env, function(value) return not rawequal(value, secret) end)
     assert(filter(nil, "CHAT_MSG_CHANNEL", secret) == false)
     assert(select(2, filter(nil, "CHAT_MSG_CHANNEL", nil)) == nil)
 end
@@ -1110,12 +1259,7 @@ local function rangeFixture(saved, characterSaved)
     local state = {ranges = {}, watches = {}, subscriptions = {}, checks = 0, cursor = {}, clears = 0, menus = {}}
     local secret = setmetatable({}, {__tostring = function() error("Used a secret") end, __index = function() error("Read a secret") end})
     state.secret = secret
-    env.canaccessvalue = function(...)
-        for index = 1, select("#", ...) do
-            if rawequal(select(index, ...), secret) then return false end
-        end
-        return true
-    end
+    MockValueAccess(env, function(value) return not rawequal(value, secret) end)
     env.Enum.SpellBookSpellBank = {Player = 0, Pet = 1}
     env.Enum.SpellBookItemType = {Spell = 1, FutureSpell = 2, Flyout = 4}
     state.spells = {
@@ -1206,7 +1350,7 @@ end
 do
     local test, state = rangeFixture(); test.login(); test.addon.ToggleOptions()
     local env, range = test.env, test.addon.RangeIndicator
-    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local tab = env.MinnTinkersWoWFOptionsTab2; ClickTab(tab)
     local input, slot = env.MinnTinkersWoWFRangeSpellInput, env.MinnTinkersWoWFRangeSpellSlot
     assert(range.IsAvailable() and range.GetSettings().enabled and range.GetSettings().locked)
     assert(not env.MinnTinkersWoWFRangeIndicator:IsShown())
@@ -1353,7 +1497,7 @@ do
     env.UIParent:SetSize(500, 300); test.emit("UI_SCALE_CHANGED")
     assert(settings.x == 246 and settings.y == -146)
     test.addon.ToggleOptions()
-    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local tab = env.MinnTinkersWoWFOptionsTab2; ClickTab(tab)
     env.MinnTinkersWoWFRangeResetPosition.scripts.OnClick()
     assert(settings.x == 0 and settings.y == -120 and settings.size == 8 and settings.spellID == 75)
     env.MinnTinkersWoWFRangeSize:SetValue(42); assert(settings.size == 42 and frame.dot.fontSize == 42)
@@ -1391,7 +1535,7 @@ do
     range.SetOpacity(-1); assert(settings.opacity == 10 and frame.alpha == 0.1)
     range.SetOpacity(200); assert(settings.opacity == 100 and frame.alpha == 1)
     test.addon.ToggleOptions()
-    local tab = env.MinnTinkersWoWFOptionsTab2; tab.scripts.OnClick(tab)
+    local tab = env.MinnTinkersWoWFOptionsTab2; ClickTab(tab)
     local slider = env.MinnTinkersWoWFRangeOpacity
     slider:SetValue(35); assert(settings.opacity == 35 and frame.alpha == 0.35)
     slider:Refresh(); assert(settings.opacity == 35)
@@ -1418,7 +1562,7 @@ print("PASS: range opacity default/bounds, slider, combat, presentation-only upd
 local function petFixture(saved)
     local test = fixture(saved)
     local env = test.env
-    local state = {hunter = true, value = 200, maximum = 900, reads = 0, maximumReads = 0, writes = 0, tooltipCalls = 0, borders = {}, atlasReads = 0, outerBackgrounds = 0, masks = {}, zoneBackgrounds = {}, maskReads = 0}
+    local state = {hunter = true, value = 200, maximum = 900, reads = 0, maximumReads = 0, writes = 0, tooltipCalls = 0}
     local secretMT = {
         __add = function() error("Secret happiness arithmetic") end,
         __sub = function() error("Secret happiness arithmetic") end,
@@ -1430,13 +1574,9 @@ local function petFixture(saved)
         __tostring = function() error("Secret happiness formatting") end,
     }
     state.secretValue, state.secretMaximum = setmetatable({}, secretMT), setmetatable({}, secretMT)
-    env.canaccessvalue = function(...)
-        for index = 1, select("#", ...) do
-            local value = select(index, ...)
-            if rawequal(value, state.secretValue) or rawequal(value, state.secretMaximum) then return false end
-        end
-        return true
-    end
+    MockValueAccess(env, function(value)
+        return not rawequal(value, state.secretValue) and not rawequal(value, state.secretMaximum)
+    end)
     env.Enum.PowerType = {Happiness = 27}
     env.UnitClass = function() return state.hunter and "Hunter" or "Warrior", state.hunter and "HUNTER" or "WARRIOR" end
     env.HasPetUI = function() return true, state.hunter end
@@ -1456,27 +1596,7 @@ local function petFixture(saved)
     local setPetShown = env.PetFrame.SetShown
     state.setPetShown = function(value) setPetShown(env.PetFrame, value) end
     env.PetFrameManaBar = create("StatusBar", nil, env.PetFrame)
-    env.PetFrameManaBar:SetSize(74, 7)
-    env.PetFrameTexture = env.PetFrame:CreateTexture()
-    function env.PetFrameTexture:GetRect() return 0, 0, 120, 49 end
-    function env.PetFrameTexture:GetAtlas() return "UI-HUD-UnitFrame-TargetofTarget-PortraitOn" end
-    function env.PetFrameTexture:GetTexture() error("Must use the atlas file and bounds") end
-    function env.PetFrameTexture:GetTexCoord() error("Texture coordinates do not identify atlas sheet bounds") end
-    env.C_Texture = {GetAtlasInfo = function(atlas)
-        if atlas == "UI-HUD-UnitFrame-Party-PortraitOff-Bar-Mana-Mask" then
-            state.maskReads = state.maskReads + 1
-            return state.maskAtlas
-        end
-        assert(atlas == "UI-HUD-UnitFrame-TargetofTarget-PortraitOn")
-        state.atlasReads = state.atlasReads + 1
-        return state.atlas
-    end}
-    state.atlas = {file = 12345, leftTexCoord = 0.1, rightTexCoord = 0.5, topTexCoord = 0.2, bottomTexCoord = 0.6}
-    function env.PetFrameManaBar:GetRect() return 40, 11, 74, 7 end
-    env.PetFrameManaBarMask = env.PetFrameManaBar:CreateTexture()
-    function env.PetFrameManaBarMask:GetAtlas() error("Do not crop the portrait mask") end
-    function env.PetFrameManaBarMask:GetRect() error("Do not read secure mask geometry") end
-    state.maskAtlas = {file = 54321, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1}
+    env.PetFrameManaBar:SetSize(77, 7)
     env.PetFrameHappiness = create("Frame", nil, env.PetFrame)
     local icon = env.PetFrameHappiness
     icon.Texture = icon:CreateTexture()
@@ -1503,44 +1623,8 @@ local function petFixture(saved)
     env.CreateFrame = function(kind, name, parent, template)
         local f = create(kind, name, parent, template)
         f.kind, f.parent, f.template = kind, parent, template
-        function f:GetFrameLevel() return 10 end
-        local createTexture = f.CreateTexture
-        local function textureWithMasks(self, ...)
-            local texture = createTexture(self, ...)
-            texture.masks = {}
-            function texture:AddMaskTexture(mask) self.masks[#self.masks + 1] = mask end
-            function texture:SetTexCoord(...) self.coords = {...} end
-            function texture:SetTexture(file, horizontal, vertical)
-                self.texture, self.horizontal, self.vertical = file, horizontal, vertical
-            end
-            function texture:SetAtlas(atlas, useSize, filter, reset, horizontal, vertical)
-                self.atlas, self.useAtlasSize, self.resetTexCoords = atlas, useSize, reset
-                self.horizontal, self.vertical = horizontal, vertical
-            end
-            return texture
-        end
-        function f:CreateMaskTexture(...)
-            local texture = textureWithMasks(self, ...)
-            state.masks[#state.masks + 1] = texture
-            return texture
-        end
-        function f:CreateTexture(textureName, layer, ...)
-            local texture = textureWithMasks(self, textureName, layer, ...)
-            if name ~= "MinnTinkersWoWFPetHappinessBar" and layer == "BACKGROUND" then
-                state.zoneBackgrounds[#state.zoneBackgrounds + 1] = texture
-            end
-            return texture
-        end
         if name == "MinnTinkersWoWFPetHappinessBar" then
-            local createTexture = f.CreateTexture
-            function f:CreateTexture(textureName, layer, ...)
-                local texture = createTexture(self, textureName, layer, ...)
-                function texture:SetTexCoord(...) self.coords = {...} end
-                if layer == "BORDER" then state.borders[#state.borders + 1] = texture end
-                if layer == "BACKGROUND" then state.outerBackgrounds = state.outerBackgrounds + 1 end
-                texture.layer = layer
-                return texture
-            end
+            f.width = env.PetFrameManaBar:GetWidth() - 8
         end
         function f:RegisterUnitEvent(event, ...)
             self:RegisterEvent(event)
@@ -1548,12 +1632,7 @@ local function petFixture(saved)
             self.unitEvents[event] = {...}
         end
         function f:SetClipsChildren(value) self.clips = value end
-        function f:SetBackdrop() error("Happiness bar must use native trim, not a tooltip backdrop") end
-        function f:SetStatusBarTexture(value)
-            self.barTexture = value
-            self.fillTexture = textureWithMasks(self)
-        end
-        function f:GetStatusBarTexture() return self.fillTexture end
+        function f:SetStatusBarTexture(value) self.barTexture = value end
         function f:SetStatusBarColor(...) self.barColor = {...} end
         if kind == "StatusBar" then
             function f:SetMinMaxValues(minimum, maximum)
@@ -1577,54 +1656,16 @@ do
     local frame, icon = env.MinnTinkersWoWFPetHappinessBar, env.PetFrameHappiness
     assert(module.IsAvailable() and env.MinnTinkersWoWFDB.petHappinessBar and env.MinnTinkersWoWFDB.extra == "keep")
     assert(frame.alpha == 1 and icon.Texture.alpha == 0 and frame.parent == env.PetFrame)
-    assert(frame.height == 11 and frame.template == nil and frame.backdrop == nil)
-    assert(#state.borders == 3 and state.outerBackgrounds == 0, "Transparent corners need no outer rectangular background")
-    local capRight = 0.1 + 0.4 * 118 / 120
-    local capLeft = capRight - 0.4 * 8 / 120
-    local top, bottom = 0.2 + 0.4 * 29 / 49, 0.2 + 0.4 * 42 / 49
-    local expectedCoords = {{capRight, capLeft, top, bottom},
-        {capLeft - 0.4 * 4 / 120, capLeft, top, bottom}, {capLeft, capRight, top, bottom}}
-    for index, border in ipairs(state.borders) do
-        assert(border.texture == 12345 and border.alpha == 1 and border.layer == "BORDER")
-        for coord, value in ipairs(expectedCoords[index]) do assert(math.abs(border.coords[coord] - value) < 0.000001) end
-    end
-    assert(state.borders[1].width == 8 and state.borders[3].width == 8)
-    assert(state.borders[1].point[4] == -2 and state.borders[1].point[5] == -2)
-    assert(state.borders[3].point[4] == 2 and state.borders[3].point[5] == -2)
-    assert(frame.point[2] == env.PetFrameManaBar and frame.point[3] == "BOTTOMRIGHT" and frame.point[5] == -2)
-    assert(#state.masks == 1 and #state.zoneBackgrounds == 3)
-    local mask = state.masks[1]
-    assert(mask.atlas == "UI-HUD-UnitFrame-Party-PortraitOff-Bar-Mana-Mask" and mask.useAtlasSize == false)
-    assert(mask.resetTexCoords and mask.coords == nil, "Use the full mask canvas without UV cropping")
-    local function checkMaskGeometry(innerWidth)
-        -- Model the native 84x7 alpha window in its 128x16 canvas, independently of texture UVs.
-        local visibleWidth = 84 / 128 * mask.width
-        local visibleHeight = 7 / 16 * mask.height
-        local visibleLeft = mask.point[4] + 21 / 128 * mask.width
-        local visibleTop = mask.point[5] - 5 / 16 * mask.height
-        assert(math.abs(visibleWidth - innerWidth) < 0.000001 and math.abs(visibleHeight - 7) < 0.000001,
-            "Native mask alpha window must span the full interior")
-        assert(math.abs(visibleLeft - 2) < 0.000001 and math.abs(visibleTop + 2) < 0.000001,
-            "Native mask alpha window must align with the fill")
-    end
-    checkMaskGeometry(frame:GetWidth() - 4)
-    frame.width = 74; frame.scripts.OnSizeChanged(frame, 74, 11); checkMaskGeometry(70)
-    frame.width = 100; frame.scripts.OnSizeChanged(frame, 100, 11); checkMaskGeometry(96)
-    assert(mask.horizontal == "CLAMPTOBLACKADDITIVE" and mask.vertical == "CLAMPTOBLACKADDITIVE")
-    assert(mask.point[2] == frame and mask.point[5] == 3)
+    assert(frame.height == 6)
+    assert(frame.point[2] == env.PetFrameManaBar and frame.point[3] == "BOTTOMRIGHT" and frame.point[4] == -4 and frame.point[5] == -4)
     local colors = {{0.9, 0.15, 0.1}, {1, 0.72, 0.08}, {0.15, 0.8, 0.25}}
     for index = 1, 3 do
         local fill = env["MinnTinkersWoWFPetHappinessFill" .. index]
-        assert(fill.parent.clips and fill.height == 7)
-        assert(#fill.fillTexture.masks == 1 and #state.zoneBackgrounds[index].masks == 1)
-        for maskIndex, mask in ipairs(state.masks) do
-            assert(fill.fillTexture.masks[maskIndex] == mask and state.zoneBackgrounds[index].masks[maskIndex] == mask)
-        end
-        assert(fill.barTexture == "Interface\\TargetingFrame\\UI-StatusBar")
+        assert(fill.parent.clips and fill.height == 6)
+        assert(fill.barTexture == "Interface\\Buttons\\WHITE8X8")
         assert(table.concat(fill.barColor, ",") == table.concat(colors[index], ","))
         assert(fill.minimum == 0 and rawequal(fill.maximum, state.secretMaximum) and rawequal(fill.value, state.secretValue))
     end
-    local atlasReads = state.atlasReads
     assert(state.reads == 1 and state.maximumReads == 1 and state.writes == 3)
     module.Initialize(); assert(state.reads == 1 and state.writes == 3)
     assert(frame.unitEvents.UNIT_POWER_UPDATE[1] == "pet" and frame.unitEvents.UNIT_PET[1] == "player")
@@ -1635,7 +1676,7 @@ do
     test.emit("UNIT_HAPPINESS", "player"); test.emit("UNIT_PET", "party1")
     assert(state.reads == 1 and state.maximumReads == 1 and state.writes == 3, "Unrelated power/unit events must not query or redraw happiness")
     test.emit("UNIT_POWER_UPDATE", "pet", "HAPPINESS")
-    assert(state.reads == 2 and state.writes == 6 and state.atlasReads == atlasReads and state.maskReads == 1, "Happiness updates must not rebuild border or mask art")
+    assert(state.reads == 2 and state.writes == 6)
     test.emit("UNIT_MAXPOWER", "pet", "HAPPINESS")
     test.emit("UNIT_HAPPINESS", "pet")
     test.emit("PET_UI_UPDATE"); test.emit("PLAYER_ENTERING_WORLD"); test.emit("UNIT_PET", "player")
@@ -1666,36 +1707,20 @@ do
     local frame, icon = env.MinnTinkersWoWFPetHappinessBar, env.PetFrameHappiness
     local function geometry(width)
         frame.width = width
-        frame.scripts.OnSizeChanged(frame, width, 11)
-        local inner = width - 4
+        frame.scripts.OnSizeChanged(frame, width, 6)
         for index = 1, 3 do
             local fill = env["MinnTinkersWoWFPetHappinessFill" .. index]
-            assert(fill.width == inner and fill.height == 7)
-            assert(fill.parent.width == inner / 3 - (index < 3 and 1 or 0))
-            assert(fill.parent.point[4] == 2 + (index - 1) * inner / 3)
-            assert(fill.point[4] == -(index - 1) * inner / 3)
+            assert(fill.width == width and fill.height == 6)
+            assert(fill.parent.width == width / 3 - (index < 3 and 1 or 0))
+            assert(fill.parent.point[4] + fill.point[4] == 0)
         end
+        local last = env.MinnTinkersWoWFPetHappinessFill3.parent
+        assert(math.abs(last.point[4] + last.width - width) < 0.000001, "Color zones must end at the focus bar edge")
     end
-    geometry(74); geometry(100)
-    frame.scripts.OnSizeChanged(frame, state.secretValue, 10)
-    frame.scripts.OnSizeChanged(frame, 0, 10)
-    assert(env.MinnTinkersWoWFPetHappinessFill1.width == 96)
-    local originalRect = env.PetFrameTexture.GetRect
-    env.PetFrameTexture.GetRect = function() return state.secretValue, 0, 120, 49 end
-    geometry(74); assert(state.borders[1].alpha == 0)
-    env.PetFrameTexture.GetRect = function() end
-    geometry(74); assert(state.borders[1].alpha == 0)
-    env.PetFrameTexture.GetRect = originalRect
-    geometry(74); assert(state.borders[1].alpha == 1 and state.borders[1].texture == 12345)
-    local atlas = state.atlas
-    state.atlas = nil; geometry(74)
-    for _, border in ipairs(state.borders) do assert(border.alpha == 0) end
-    state.atlas = atlas; geometry(74)
-    atlas.leftTexCoord = state.secretValue; geometry(74)
-    for _, border in ipairs(state.borders) do assert(border.alpha == 0) end
-    atlas.leftTexCoord = 0.1; geometry(74)
-    for _, border in ipairs(state.borders) do assert(border.alpha == 1) end
-    assert(state.maskReads == 1, "Resize and pet display changes must not recrop masks")
+    geometry(77); geometry(100)
+    frame.scripts.OnSizeChanged(frame, state.secretValue, 6)
+    frame.scripts.OnSizeChanged(frame, 0, 6)
+    assert(env.MinnTinkersWoWFPetHappinessFill1.width == 100)
     state.value = 800; test.emit("UNIT_POWER_UPDATE", "pet", "HAPPINESS")
     assert(env.MinnTinkersWoWFPetHappinessFill3.value == 800)
     state.hunter = false; test.emit("UNIT_PET", "player")
@@ -1715,7 +1740,7 @@ do
     state.hunter = true; state.value = nil; test.emit("PET_UI_UPDATE"); assert(frame.alpha == 0)
     state.value = 200; test.emit("PET_UI_UPDATE"); assert(frame.alpha == 1)
     test.addon.ToggleOptions()
-    local tab = env.MinnTinkersWoWFOptionsTab4; tab.scripts.OnClick(tab)
+    local tab = env.MinnTinkersWoWFOptionsTab4; ClickTab(tab)
     local check = env.MinnTinkersWoWFPetHappiness
     assert(check.enabled and check.checked)
     check:SetChecked(false); check.scripts.OnClick(check)
@@ -1728,15 +1753,6 @@ do
         and reload.env.PetFrameHappiness.Texture.alpha == 0.8)
     local nonHunter, nonHunterState = petFixture(); nonHunterState.hunter = false; nonHunter.login()
     assert(nonHunter.env.MinnTinkersWoWFPetHappinessBar.alpha == 0 and nonHunterState.reads == 0)
-    local missingMask, missingMaskState = petFixture()
-    missingMaskState.maskAtlas = nil
-    missingMask.login()
-    assert(#missingMaskState.masks == 0 and missingMask.env.MinnTinkersWoWFPetHappinessBar.alpha == 1)
-    for index = 1, 3 do
-        local fill = missingMask.env["MinnTinkersWoWFPetHappinessFill" .. index]
-        assert(fill.value == 200 and #fill.fillTexture.masks == 0 and #missingMaskState.zoneBackgrounds[index].masks == 0,
-            "An unavailable mask must not hide the fill or dim zones")
-    end
     local unavailable = fixture(); unavailable.login(); unavailable.addon.ToggleOptions()
     assert(not unavailable.addon.PetHappinessBar.IsAvailable() and unavailable.env.MinnTinkersWoWFPetHappiness.enabled == false)
 end
@@ -1751,10 +1767,7 @@ local function chatFixture(saved, characterSaved)
         state.colorQueries = state.colorQueries + 1
         return {GetRGB = function() return unpack(state.classRGB) end}
     end}
-    env.canaccessvalue = function(...)
-        for index = 1, select("#", ...) do if rawequal(select(index, ...), state.secret) then return false end end
-        return true
-    end
+    MockValueAccess(env, function(value) return not rawequal(value, state.secret) end)
     env.TIMESTAMP_FORMAT_HHMM_24HR, env.TIMESTAMP_FORMAT_HHMMSS_24HR = "%H:%M", "%H:%M:%S"
     env.TIMESTAMP_FORMAT_HHMM_AMPM, env.TIMESTAMP_FORMAT_HHMMSS_AMPM = "%I:%M %p", "%I:%M:%S %p"
     env.MenuUtil = {CreateContextMenu = function(_, build)
@@ -1824,11 +1837,11 @@ local function chatFixture(saved, characterSaved)
         function chat:GetShadowColor() return unpack(self.shadowColor) end
         function chat:GetShadowOffset() return unpack(self.shadowOffset) end
         function chat:SetShadowColor(...)
-            assert(env.canaccessvalue(...))
+            assert(env.canaccessallvalues(...))
             self.shadowColor = {...}; self.shadowWrites = self.shadowWrites + 1
         end
         function chat:SetShadowOffset(...)
-            assert(env.canaccessvalue(...))
+            assert(env.canaccessallvalues(...))
             self.shadowOffset = {...}; self.shadowWrites = self.shadowWrites + 1
         end
         box.chatFrame, box.attributes, box.altArrows, box.history = chat, {chatType = "SAY", stickyType = "SAY"}, true, {}
@@ -2041,16 +2054,16 @@ do
     test.addon.ChatTools.SetOption("copyChat", true); copy.scripts.OnClick(); assert(window:IsShown())
     test.addon.ChatTools.SetOption("copyChat", false); assert(not window:IsShown())
     test.addon.ToggleOptions()
-    env.MinnTinkersWoWFOptionsTab3.scripts.OnClick(env.MinnTinkersWoWFOptionsTab3)
+    ClickTab(env.MinnTinkersWoWFOptionsTab3)
     assert(env.MinnTinkersWoWFDB.lastTab == "Chat" and env.MinnTinkersWoWFChatURLs.point[3] == -114)
     local timestamps = env.MinnTinkersWoWFChatTimestamps
-    assert(timestamps.enabled and timestamps.text == "Timestamps: Off")
-    timestamps.scripts.OnClick(timestamps)
+    assert(timestamps.enabled and timestamps.text == "Off")
+    env.MenuUtil.CreateContextMenu(timestamps, timestamps.menuGenerator)
     assert(#state.menu == 5 and state.menu[1].selected())
     state.menu[3].callback()
-    assert(state.timestamp == "%H:%M:%S" and timestamps.text == "Timestamps: 24-hour with seconds")
+    assert(state.timestamp == "%H:%M:%S" and timestamps.text == "24-hour with seconds")
     local reload = chatFixture(env.MinnTinkersWoWFDB); reload.login(); reload.addon.ToggleOptions()
-    assert(reload.env.MinnTinkersWoWFOptions.selectedTab == 3 and not reload.env.MinnTinkersWoWFDB.chat.copyChat)
+    assert(IsSelected(reload.env, 3) and not reload.env.MinnTinkersWoWFDB.chat.copyChat)
     local warrior = fixture(); warrior.env.UnitClass = function() return "Warrior", "WARRIOR" end
     warrior.login(); warrior.addon.ToggleOptions()
     assert(not warrior.env.MinnTinkersWoWFPetHappiness and warrior.env.MinnTinkersWoWFRangeEnabled.point[3] == -316)
@@ -2144,7 +2157,7 @@ do
     local module = test.addon.ChatShadow
     assert(module.IsAvailable() and test.env.MinnTinkersWoWFDB.chat.enhancedShadow)
     assert(chat.shadowColor[1] == 0 and chat.shadowColor[4] == 1
-        and chat.shadowOffset[1] == 2 and chat.shadowOffset[2] == -2 and chat.shadowWrites == 2)
+        and chat.shadowOffset[1] == 1.5 and chat.shadowOffset[2] == -1.5 and chat.shadowWrites == 2)
     assert(chat.SetShadowColor == nativeColor and chat.SetShadowOffset == nativeOffset, "Do not wrap native font methods")
     local currentFont, currentSize, currentFlags = chat:GetFont()
     assert(currentFont == font and currentSize == size and currentFlags == flags)
@@ -2160,19 +2173,21 @@ do
     module.SetEnabled(false); assert(chat.shadowWrites == 4)
     test.env.FCF_OpenNewWindow(); assert(test.env.ChatFrame3.shadowWrites == 0)
     module.SetEnabled(true)
-    assert(test.env.ChatFrame3.shadowOffset[1] == 2 and test.env.ChatFrame3.shadowWrites == 2)
-    test.env.FCF_OpenTemporaryWindow(); assert(test.env.ChatFrame4.shadowOffset[1] == 2)
+    assert(test.env.ChatFrame3.shadowOffset[1] == 1.5 and test.env.ChatFrame3.shadowWrites == 2)
+    test.env.FCF_OpenTemporaryWindow(); assert(test.env.ChatFrame4.shadowOffset[1] == 1.5)
     module.SetEnabled(false)
     assert(test.env.ChatFrame3.shadowOffset[1] == 1 and test.env.ChatFrame4.shadowOffset[2] == -1)
     test.addon.ToggleOptions()
     local check = test.env.MinnTinkersWoWFChat_enhancedShadow
     assert(check.enabled and not check.checked and check.Text.text == "Enhanced chat shadow")
-    check:SetChecked(true); check.scripts.OnClick(check); assert(chat.shadowOffset[1] == 2)
+    check:SetChecked(true); check.scripts.OnClick(check); assert(chat.shadowOffset[1] == 1.5)
     local reload, reloaded = chatFixture(test.env.MinnTinkersWoWFDB); reload.login()
-    assert(reloaded.chat.shadowOffset[1] == 2)
+    assert(reloaded.chat.shadowOffset[1] == 1.5)
     reload.addon.ChatShadow.SetEnabled(false)
     local disabled, disabledState = chatFixture(reload.env.MinnTinkersWoWFDB); disabled.login()
     assert(disabledState.chat.shadowWrites == 0 and disabledState.chat.shadowOffset[1] == 1)
+    local migrated, migratedState = chatFixture({chat = {enhancedShadow = true, textOutline = false}}); migrated.login()
+    assert(migrated.env.MinnTinkersWoWFDB.chat.enhancedShadow == false and migratedState.chat.shadowWrites == 0)
     local secret, secretState = chatFixture()
     secretState.chat.shadowOffset[1] = secretState.secret
     secret.login(); assert(secretState.chat.shadowWrites == 0 and not secret.addon.ChatShadow.IsAvailable())
@@ -2299,6 +2314,105 @@ do
 end
 print("PASS: sent-history serialization/reload, session-only drafts, per-character isolation, shared/reused windows, bounded saved storage and invalid saved-data repair")
 
+do
+    local function barFixture(saved, microShown)
+        local test = fixture(saved)
+        local env = test.env
+        MockValueAccess(env, function() return true end)
+        local bags = env.CreateFrame("Frame", "BagsBar")
+        local micro = env.CreateFrame("Frame", "MicroMenu")
+        local anchor = env.CreateFrame("Frame", "MicroButtonAndBagsBar")
+        function bags:IsProtected() return true end
+        function micro:IsProtected() return false end
+        local nativeBagSetShown = bags.SetShown
+        function bags:SetShown(shown)
+            assert(not env.InCombatLockdown(), "Protected bar visibility must wait for combat to end")
+            nativeBagSetShown(self, shown)
+        end
+        bags:Show(); micro:SetShown(microShown); anchor:Show()
+        return test, bags, micro, anchor, nativeBagSetShown
+    end
+
+    local test, bags, micro, anchor, nativeBagSetShown = barFixture(nil, true)
+    test.login(); test.addon.ToggleOptions()
+    local env = test.env
+    local bagCheck, microCheck = env.MinnTinkersWoWF_hideBagBar, env.MinnTinkersWoWF_hideMicroBar
+    assert(bagCheck.enabled and microCheck.enabled and not bagCheck.checked and not microCheck.checked)
+    assert(bags:IsShown() and micro:IsShown())
+    bagCheck:SetChecked(true); bagCheck.scripts.OnClick(bagCheck)
+    assert(not bags:IsShown() and micro:IsShown() and anchor:IsShown())
+    bags:Show(); assert(not bags:IsShown(), "A native re-show must respect the saved toggle")
+    test.combat(true)
+    nativeBagSetShown(bags, true)
+    assert(bags:IsShown(), "A protected native re-show in combat must wait for a safe hide")
+    microCheck:SetChecked(true); microCheck.scripts.OnClick(microCheck)
+    assert(not micro:IsShown() and env.MinnTinkersWoWFDB.hideMicroBar)
+    test.combat(false); test.emit("PLAYER_REGEN_ENABLED")
+    assert(not bags:IsShown() and not micro:IsShown())
+    test.combat(true)
+    bagCheck:SetChecked(false); bagCheck.scripts.OnClick(bagCheck)
+    assert(not bags:IsShown() and not env.MinnTinkersWoWFDB.hideBagBar)
+    test.combat(false); test.emit("PLAYER_REGEN_ENABLED")
+    assert(bags:IsShown() and not micro:IsShown() and #test.timers == 0)
+
+    local reload, freshBags, freshMicro = barFixture(env.MinnTinkersWoWFDB, true)
+    reload.login(); assert(freshBags:IsShown() and not freshMicro:IsShown())
+    local hidden, _, nativeHidden = barFixture({ hideMicroBar = true }, false)
+    hidden.login(); hidden.addon.BarVisibility.SetHidden("hideMicroBar", false)
+    assert(not nativeHidden:IsShown(), "Turning off the option must not show an independently hidden bar")
+end
+print("PASS: independent bar toggles, native re-show, combat deferral, reload and native visibility restoration")
+
+
+-- Changing panel height reveals more art at an unchanged scale and fades the bottom into black.
+do
+    local test = fixture()
+    local env, background, fade = test.env
+    env.C_Texture = {GetAtlasInfo = function(atlas)
+        assert(atlas == "Legacy-Rewards-Tracker-background")
+        return {file = 123, width = 1024, height = 768,
+            leftTexCoord = 0.125, rightTexCoord = 0.625, topTexCoord = 0.25, bottomTexCoord = 0.625}
+    end}
+    local createFrame = env.CreateFrame
+    env.CreateFrame = function(kind, name, parent, template)
+        local frame = createFrame(kind, name, parent, template)
+        if name == "MinnTinkersWoWFOptions" then
+            local inset = frame.Inset
+            inset:SetSize(550, 606)
+            local createTexture = inset.CreateTexture
+            function inset:CreateTexture(_, layer, _, sublevel)
+                assert(layer == "BACKGROUND")
+                local texture = createTexture(self)
+                if sublevel == -4 then
+                    background = texture
+                    function background:SetTexCoord(...) self.coords = {...} end
+                else
+                    assert(sublevel == -3)
+                    fade = texture
+                end
+                return texture
+            end
+        end
+        return frame
+    end
+    test.login(); test.addon.ToggleOptions()
+    local inset = env.MinnTinkersWoWFOptions.Inset
+    assert(background.texture == 123 and background.coords[3] == 0.25)
+    local small, smallHeight = background.coords, background.height
+    assert(not fade:IsShown())
+    inset.scripts.OnSizeChanged(inset, 550, 650)
+    assert(fade:IsShown() and fade.height > 0 and fade.height < 64)
+    inset.scripts.OnSizeChanged(inset, 550, 736)
+    local large = background.coords
+    for index = 1, 3 do assert(large[index] == small[index]) end
+    assert(large[4] == 0.625 and background.height < 736 and fade.height == 64 and fade:IsShown())
+    local texelsPerUnit = (large[4] - large[3]) * 2048 / background.height
+    assert(math.abs(texelsPerUnit - (small[4] - small[3]) * 2048 / smallHeight) < 1e-8)
+    assert(math.abs(texelsPerUnit - (large[2] - large[1]) * 2048 / 550) < 1e-8)
+    inset.scripts.OnSizeChanged(inset, 550, 606)
+    for index = 1, 4 do assert(background.coords[index] == small[index]) end
+end
+print("PASS: Legacy Points art keeps its scale and fades into the backing at maximum height")
 
 -- Consistent rows and category gaps must fit the existing minimum window height.
 do
@@ -2320,6 +2434,7 @@ do
     assert(y(heading(universal, "NPC interaction")) - (y(note) - 6 + 26) == 24)
     gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
     gap(ui, "Range indicator", env.MinnTinkersWoWFCombat_width.parent)
+    gap(ui, "Bar visibility", env.MinnTinkersWoWFRangeResetPosition)
     gap(chat, "Chat tools", env.MinnTinkersWoWFChat_preserveDraft)
     gap(chat, "Appearance", env.MinnTinkersWoWFChat_unreadMarker)
     gap(chat, "Timestamps", env.MinnTinkersWoWFChat_enhancedShadow)
@@ -2332,12 +2447,21 @@ do
         for index = 2, #rows do assert(y(rows[index]) - y(rows[index - 1]) == 32) end
     end
     assert(y(env.MinnTinkersWoWFRangeResetPosition) + 26 == 502 and window.height == 670)
-    assert(env.MinnTinkersWoWFRangeEnabled.Text.fontSize == 11 and heading(ui, "Range indicator").fontSize == 11)
-    local originalSize = env.MinnTinkersWoWFRangeEnabled.Text.fontSize
-    test.addon.ToggleOptions(); test.addon.ToggleOptions()
-    assert(env.MinnTinkersWoWFRangeEnabled.Text.fontSize == originalSize, "Reopening must not keep increasing fonts")
+    assert(y(env.MinnTinkersWoWF_hideBagBar) + 26 == 576 and y(env.MinnTinkersWoWF_hideMicroBar) == y(env.MinnTinkersWoWF_hideBagBar))
+    assert(heading(ui, "Range indicator").fontObject == "Game15Font_Shadow")
+    assert(env.MinnTinkersWoWFRangeEnabled.Text.fontObject == "GameFontNormalSmall")
+    assert(env.MinnTinkersWoWFCameraDistance.parent.fontStrings[1].fontObject == "GameFontHighlight_NoShadow")
+    assert(note.fontObject == "GameFontHighlightSmall2")
+    local input = env.MinnTinkersWoWFRangeSpellInput
+    local selectSpell, clearSpell = env.MinnTinkersWoWFRangeSelectSpell, env.MinnTinkersWoWFRangeClearSpell
+    assert(input.fontObject == "GameFontHighlightSmall")
+    for _, button in ipairs({selectSpell, clearSpell, env.MinnTinkersWoWFRangeResetPosition}) do
+        assert(button.template == "SharedButtonSmallTemplate")
+    end
+    assert(selectSpell.point[2] - selectSpell:GetWidth() > input.point[2])
+    assert(clearSpell.point[2] - clearSpell:GetWidth() > selectSpell.point[2])
 end
-print("PASS: equal category gaps, consistent control rows, hunter layout fits minimum size, slightly larger text and no font growth on reopen")
+print("PASS: consistent control spacing, non-overlapping spell controls, and native professions fonts and buttons")
 
 local function buffFixture(saved, characterSaved, playerClass)
     local test = fixture(saved, characterSaved)
@@ -2348,12 +2472,7 @@ local function buffFixture(saved, characterSaved, playerClass)
     local state = {now = 100, aura = {expirationTime = 1600}, reads = 0, spellReads = 0,
         known = true, secret = secret, casts = 0, protectedWrites = 0}
     env.UnitClass = function() return playerClass or "Hunter", playerClass or "HUNTER" end
-    env.canaccessvalue = function(...)
-        for index = 1, select("#", ...) do
-            if rawequal(select(index, ...), secret) then return false end
-        end
-        return true
-    end
+    MockValueAccess(env, function(value) return not rawequal(value, secret) end)
     env.GetTime = function() return state.now end
     env.UnitOnTaxi = function(unit)
         assert(unit == "player")
@@ -2520,10 +2639,10 @@ print("PASS: secure combat hiding, deferred login/size/position/toggles, no comb
 do
     local test, state = buffFixture({petHappinessBar = false}); test.login(); test.addon.ToggleOptions()
     local env, window, reminder = test.env, test.env.MinnTinkersWoWFOptions, test.addon.BuffReminder
-    assert(window.numTabs == 4 and env.MinnTinkersWoWFOptionsTab4.text == "Hunter")
+    assert(#window.Inset.children == 4 and env.MinnTinkersWoWFOptionsTab4.tooltipText == "Hunter")
     assert(env.MinnTinkersWoWFPetHappiness.parent == window.Inset.children[4])
     assert(not env.MinnTinkersWoWFPetHappiness.checked and env.MinnTinkersWoWFRangeEnabled.parent == window.Inset.children[2])
-    env.MinnTinkersWoWFOptionsTab4.scripts.OnClick(env.MinnTinkersWoWFOptionsTab4)
+    ClickTab(env.MinnTinkersWoWFOptionsTab4)
     assert(env.MinnTinkersWoWFDB.lastTab == "Hunter" and env.MinnTinkersWoWFBuffReminderEnabled.checked)
     local unlock = env.MinnTinkersWoWFBuffReminderUnlocked
     unlock:SetChecked(true); unlock.scripts.OnClick(unlock); assert(state.button.shown)
@@ -2531,17 +2650,18 @@ do
     state.button.scripts.OnDragStop(state.button)
     assert(reminder.GetSettings().x == 30 and reminder.GetSettings().y == 15)
     env.MinnTinkersWoWFBuffReminderSize:SetValue(72); assert(state.button.width == 72)
+    assert(env.MinnTinkersWoWFBuffReminderReset.template == "SharedButtonSmallTemplate")
     env.MinnTinkersWoWFBuffReminderReset.scripts.OnClick()
     assert(reminder.GetSettings().x == 0 and reminder.GetSettings().y == 0)
     reminder.SetLocked(true)
     local reload, reloadState = buffFixture(env.MinnTinkersWoWFDB, env.MinnTinkersWoWFCharDB)
     reload.login(); reload.addon.ToggleOptions()
-    assert(reload.env.MinnTinkersWoWFOptions.selectedTab == 4 and reloadState.button.width == 72)
+    assert(IsSelected(reload.env, 4) and reloadState.button.width == 72)
     assert(not reload.env.MinnTinkersWoWFDB.petHappinessBar)
     local mage, mageState = buffFixture(env.MinnTinkersWoWFDB, nil, "MAGE")
     mage.login(); mage.addon.ToggleOptions()
-    assert(mage.env.MinnTinkersWoWFOptions.numTabs == 3 and not mage.env.MinnTinkersWoWFOptionsTab4)
-    assert(mage.env.MinnTinkersWoWFOptions.selectedTab == 1 and not mageState.button and mageState.reads == 0)
+    assert(#mage.env.MinnTinkersWoWFOptions.Inset.children == 3 and not mage.env.MinnTinkersWoWFOptionsTab4)
+    assert(IsSelected(mage.env, 1) and not mageState.button and mageState.reads == 0)
     for _, frame in ipairs(mage.frames) do assert(not frame.events.UNIT_AURA, "Other classes must not subscribe to hunter reminders") end
     local alt, altState = buffFixture(); alt.login(); assert(altState.button.width == 48)
     local invalid, invalidState = buffFixture(nil, {buffReminder = {size = -100, x = math.huge, y = "invalid", enabled = true}})

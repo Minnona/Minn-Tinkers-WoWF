@@ -84,11 +84,11 @@ local function ResolveSpell()
             if line then
                 for slot = line.itemIndexOffset + 1, line.itemIndexOffset + line.numSpellBookItems do
                     local item = C_SpellBook.GetSpellBookItemInfo(slot, bank)
-                    if item and canaccessvalue(item.name, item.spellID, item.itemType, item.isOffSpec)
+                    if item and canaccessallvalues(item.name, item.spellID, item.itemType, item.isOffSpec)
                         and item.itemType == Enum.SpellBookItemType.Spell and not item.isOffSpec and item.name == base.name then
                         local passive = C_Spell.IsSpellPassive(item.spellID)
                         local known = C_SpellBook.IsSpellKnown(item.spellID)
-                        if canaccessvalue(passive, known) and not passive and known then
+                        if canaccessallvalues(passive, known) and not passive and known then
                             spell = C_Spell.GetSpellInfo(item.spellID)
                         end
                     end
@@ -148,7 +148,8 @@ function module.Initialize(spellID)
         and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookSkillLineInfo
         and C_SpellBook.GetSpellBookItemInfo and C_SpellBook.IsSpellKnown
         and C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName and C_Timer and C_Timer.NewTimer
-        and Enum.SpellBookSpellBank and Enum.SpellBookItemType and canaccessvalue and RegisterStateDriver and UnitOnTaxi) then return end
+        and Enum.SpellBookSpellBank and Enum.SpellBookItemType and canaccessvalue and canaccessallvalues
+        and RegisterStateDriver and UnitOnTaxi) then return end
     if InCombatLockdown() then
         events = events or CreateFrame("Frame")
         events:RegisterEvent("PLAYER_REGEN_ENABLED")
