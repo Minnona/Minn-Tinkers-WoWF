@@ -31,12 +31,21 @@ local function CreateSlider(page, name, y, option)
         refreshing = false
     end
     slider:SetScript("OnValueChanged", function(self, value)
-        if refreshing then
-            return
+        if refreshing then return end
+        if option.applyOnRelease then
+            valueText:SetText(option.format(value))
+        else
+            option.setValue(value)
+            self:Refresh()
         end
-        option.setValue(value)
-        self:Refresh()
     end)
+    if option.applyOnRelease then
+        slider:HookScript("OnMouseUp", function(self, button)
+            if button ~= "LeftButton" then return end
+            option.setValue(self:GetValue())
+            self:Refresh()
+        end)
+    end
     slider:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(option.label)
@@ -236,7 +245,7 @@ local function CreateOptions()
         "Fast autoloot", "Skips the loot window and animation. Requires Auto Loot.",
         function() return MinnTinkersWoWFDB.fastAutoloot end, addon.SetFastAutoloot)
 
-    y = CreateSection(pages[1], y + rowHeight + sectionGap, "Camera")
+    y = CreateSection(pages[1], y + rowHeight + sectionGap, "Game options")
     local camera = CreateSlider(pages[1], "MinnTinkersWoWFCameraDistance", y, {
         label = "Max camera distance",
         min = addon.CameraDistance.min, max = addon.CameraDistance.max, step = 0.1,
@@ -249,8 +258,29 @@ local function CreateOptions()
         tooltip = "Lets you zoom farther out, up to 4.0.",
     })
 
+    local graphics = addon.WorldGraphics
+    local grassDensity = CreateSlider(pages[1], "MinnTinkersWoWFGrassDensity", y + rowSpacing, {
+        label = "Grass density", min = graphics.minDensity, max = graphics.maxDensity, step = 8,
+        getValue = graphics.GetDensity, setValue = graphics.SetDensity, isAvailable = graphics.IsDensityAvailable,
+        format = tostring, tooltip = "Adds more grass and ground plants.", applyOnRelease = true,
+    })
+    local grassDistance = CreateSlider(pages[1], "MinnTinkersWoWFGrassDistance", y + rowSpacing * 2, {
+        label = "Grass distance", min = graphics.minDistance, max = graphics.maxDistance, step = 10,
+        getValue = graphics.GetDistance, setValue = graphics.SetDistance, isAvailable = graphics.IsDistanceAvailable,
+        format = tostring, tooltip = "Shows grass farther away and blends it into the distance.", applyOnRelease = true,
+    })
+
     local checks = {}
-    y = CreateSection(pages[1], y + rowHeight + sectionGap, "Questing")
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFQuietFishing", y + rowSpacing * 3, false,
+        "Quiet while fishing", "Fades out music and ambience and raises effects to 100%. Your usual volumes start returning eight seconds after you stop fishing.",
+        function() return MinnTinkersWoWFDB.quietFishing end, addon.FishingSound.SetEnabled, addon.FishingSound.IsAvailable)
+    local sparkles = CreateCheck(pages[1], "MinnTinkersWoWFQuestSparkles", y + rowSpacing * 3, true,
+        "Quest item sparkles", "Shows sparkles on quest objects and lootables when Outline Mode is off.",
+        graphics.GetSparkles, graphics.SetSparkles, graphics.IsSparklesAvailable)
+    sparkles:HookScript("OnClick", sparkles.Refresh)
+    checks[#checks + 1] = sparkles
+
+    y = CreateSection(pages[1], y + rowSpacing * 3 + rowHeight + sectionGap, "Questing")
     for index, option in ipairs({
         { key = "autoAccept", label = "Auto accept", tooltip = "Accepts quests for you. Skips turn-ins you can repeat anytime, like cloth donations." },
         { key = "autoTurnIn", label = "Auto turn in", tooltip = "Turns in finished quests when there's one reward option or none. Skips repeatable turn-ins like cloth donations." },
@@ -540,6 +570,8 @@ local function CreateOptions()
             sliders[option.key]:Refresh()
         end
         camera:Refresh()
+        grassDensity:Refresh()
+        grassDistance:Refresh()
         combatOpacity:Refresh()
         combatWidth:Refresh()
         RefreshRangeOptions()

@@ -66,6 +66,7 @@ local function fixture(saved, characterSaved)
             f[method] = function() end
         end
         function f:RegisterEvent(event) self.events[event] = true end
+        function f:RegisterUnitEvent(event) self:RegisterEvent(event) end
         function f:UnregisterEvent(event) self.events[event] = nil end
         function f:UnregisterAllEvents() self.events = {} end
         function f:IsEventRegistered(event) return self.events[event] == true end
@@ -131,6 +132,7 @@ local function fixture(saved, characterSaved)
             self.value = value
             if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, value) end
         end
+        function f:GetValue() return self.value end
         function f:SetTitle(value) self.title = value end
         function f:SetPortraitToAsset(value) self.portrait = value end
         function f:SetText(value) self.text = value end
@@ -250,7 +252,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/CameraDistance.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/CameraDistance.lua", "Modules/WorldGraphics.lua", "Modules/FishingSound.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -718,6 +720,77 @@ do
 end
 print("PASS: zero/one/two/three choices, fixed rewards, independent toggles, uncached sole reward, no duplicate submission, Shift, repeatables and native confirmations")
 
+-- Dialogue UI replaces the native quest frame and builds its completion page separately.
+do
+    local function dialogueFixture()
+        local test, state, choices = questFixture()
+        local env = test.env
+        env.QuestFrame:Hide()
+        local dialogue = env.CreateFrame("Frame")
+        env.DUIQuestFrame = dialogue
+        local button = env.CreateFrame("Button", nil, dialogue)
+        dialogue.AcceptButton = button
+        button.type = "complete"
+        button:Show()
+        function button:IsVisible() return dialogue:IsShown() and self:IsShown() end
+        function button:IsEnabled() return not state.disabled end
+        function button:Click(mouseButton)
+            assert(mouseButton == "LeftButton")
+            assert(not state.moneyCost and #state.choices <= 1)
+            state.dialogueReward = #state.choices
+            dialogue:Hide()
+        end
+        env.GetQuestMoneyToGet = function() return state.moneyCost and 1 or 0 end
+        test.login()
+        return test, state, choices, dialogue
+    end
+    for count = 0, 2 do
+        local test, state, choices, dialogue = dialogueFixture()
+        local items = {}
+        for index = 1, count do items[index] = {link = "item:" .. index} end
+        choices(items)
+        test.emit("QUEST_COMPLETE")
+        assert(state.dialogueReward == nil)
+        dialogue.questID, dialogue.handler = state.id, "HandleQuestComplete"
+        dialogue:Show()
+        test.emit("QUEST_ITEM_UPDATE")
+        test.flush(0)
+        assert(state.dialogueReward == (count < 2 and count or nil))
+        assert(state.rewarded == 0, "Do not call the hidden Blizzard reward handler")
+    end
+    for _, block in ipairs({"closed", "shift", "changed", "wrong page", "disabled", "repeatable", "paid", "setting"}) do
+        local test, state, _, dialogue = dialogueFixture()
+        dialogue.questID, dialogue.handler = state.id, "HandleQuestComplete"
+        dialogue:Show()
+        if block == "repeatable" then state.repeatable[state.id] = true end
+        if block == "paid" then
+            state.moneyCost = true
+            test.emit("QUEST_PROGRESS")
+            assert(state.completed == 0)
+        end
+        test.emit("QUEST_COMPLETE")
+        if block == "closed" then test.emit("QUEST_FINISHED") end
+        if block == "shift" then
+            state.shift = true
+            test.emit("MODIFIER_STATE_CHANGED")
+            state.shift = false
+        end
+        if block == "changed" then state.id = state.id + 1 end
+        if block == "wrong page" then dialogue.handler = "HandleQuestProgress" end
+        if block == "disabled" then state.disabled = true end
+        if block == "setting" then test.addon.Questing.SetOption("autoTurnIn", false) end
+        test.flush(0)
+        assert(state.dialogueReward == nil and state.rewarded == 0, block)
+    end
+    local test, state = dialogueFixture()
+    test.env.QuestFrame:RegisterEvent("QUEST_COMPLETE")
+    test.env.QuestFrame:SetScript("OnEvent", function() end)
+    test.env.QuestFrame:Show()
+    test.emit("QUEST_COMPLETE")
+    assert(state.rewarded == 1 and state.dialogueReward == nil and #test.timers == 0)
+end
+print("PASS: Dialogue UI auto turn-in timing, reward choices, bypasses and native fallback")
+
 -- Removed module preferences are cleaned up without changing other saved settings.
 f = fixture({popupProtection = {enabled = true}, extra = "preserved"}); f.login()
 assert(f.env.MinnTinkersWoWFDB.popupProtection == nil and f.env.MinnTinkersWoWFDB.extra == "preserved")
@@ -838,7 +911,7 @@ print("PASS: combat enter/leave, live enable/opacity/width, combat reload, saved
 
 
 -- Gossip skips only a sole usable option, with no quests, without bypassing confirmations.
-local function gossipFixture(saved)
+local function gossipFixture(saved, withDialogue)
     local test = fixture(saved)
     local env = test.env
     local state = {options = {{gossipOptionID = 42, orderIndex = 3, status = 0}}, available = {}, active = {}, shift = false, selected = {}}
@@ -857,6 +930,28 @@ local function gossipFixture(saved)
             state.selected[#state.selected + 1] = (...)
         end,
     }
+    if withDialogue then
+        env.GossipFrame:Hide()
+        local dialogue = env.CreateFrame("Frame")
+        env.DUIQuestFrame = dialogue
+        local button = env.CreateFrame("Button", nil, dialogue)
+        state.dialogue, state.button, state.clicks, state.now = dialogue, button, 0, 1
+        env.GetTime = function() return state.now end
+        function dialogue:ShowUI(event)
+            self.handler = event == "GOSSIP_SHOW" and "HandleGossip" or "HandleQuestDetail"
+            self:Show()
+        end
+        button.type, button.id, button.gossipOptionID = "gossip", 3, 42
+        button:Show()
+        function button:IsVisible() return self:IsShown() and dialogue:IsShown() end
+        function button:IsEnabled() return not state.disabled end
+        function button:Click(mouseButton)
+            assert(mouseButton == "LeftButton")
+            state.clicks = state.clicks + 1
+            env.C_GossipInfo.SelectOptionByIndex(self.id)
+        end
+        dialogue.optionButtonPool = {ProcessActiveObjects = function(_, visit) visit(button) end}
+    end
     test.login()
     return test, state
 end
@@ -1027,6 +1122,79 @@ do
     test.env.GossipFrame:Show(); test.flush(0); assert(#state.selected == 0)
 end
 print("PASS: late gossip visibility, delayed show, opening Shift, close and disable cancellation")
+
+-- Dialogue UI handles its own option click to prepare the game UI for panels such as vendors.
+do
+    local test, state = gossipFixture(nil, true)
+    test.emit("GOSSIP_SHOW"); test.flush(0)
+    assert(#state.selected == 0)
+    state.dialogue.handler = "HandleGossip"
+    state.dialogue:Show(); test.flush(0)
+    assert(state.clicks == 1 and state.selected[1] == 3)
+    test.emit("GOSSIP_SHOW"); test.flush(0)
+    assert(state.clicks == 1 and #state.selected == 1)
+    test.emit("GOSSIP_CLOSED"); test.emit("GOSSIP_SHOW"); test.flush(0)
+    assert(state.clicks == 2 and #state.selected == 2)
+
+    for _, block in ipairs({"Shift", "quest", "closed", "confirmation", "wrong option", "locked", "wrong page"}) do
+        test, state = gossipFixture(nil, true)
+        state.dialogue.handler = block == "wrong page" and "HandleQuestDetail" or "HandleGossip"
+        state.dialogue:Show()
+        if block == "quest" then state.available = {{questID = 1}} end
+        if block == "confirmation" then state.dialogue.requireGossipConfirm = true end
+        if block == "wrong option" then state.button.gossipOptionID = 99 end
+        if block == "locked" then state.disabled = true end
+        test.emit("GOSSIP_SHOW")
+        if block == "Shift" then
+            state.shift = true
+            test.emit("MODIFIER_STATE_CHANGED")
+            state.shift = false
+        elseif block == "closed" then
+            test.emit("GOSSIP_CLOSED")
+        end
+        test.flush(0)
+        assert(#state.selected == 0 and state.clicks == 0, block)
+    end
+
+    test, state = gossipFixture(nil, true)
+    test.env.GossipFrame:Show()
+    test.emit("GOSSIP_SHOW"); test.flush(0)
+    assert(state.clicks == 0 and #state.selected == 1 and state.selected[1] == 3)
+end
+print("PASS: Dialogue UI gossip lifecycle, matching option click, exclusions and native fallback")
+
+-- The Dialogue UI page and our GOSSIP_SHOW listener can finish in either order.
+do
+    local test, state = gossipFixture(nil, true)
+    state.dialogue:ShowUI("GOSSIP_SHOW")
+    assert(state.clicks == 0, "Page rendering alone must not select an option")
+    test.emit("GOSSIP_SHOW")
+    assert(state.clicks == 1 and #test.timers == 0, "Ready page should skip in the current update")
+
+    test, state = gossipFixture(nil, true)
+    test.emit("GOSSIP_SHOW")
+    assert(state.clicks == 0)
+    state.dialogue:ShowUI("GOSSIP_SHOW")
+    assert(state.clicks == 1 and test.timers[1].cancelled, "Fresh page should skip as soon as rendering finishes")
+    test.flush(0)
+    assert(state.clicks == 1, "Fallback must not select the same option again")
+
+    test, state = gossipFixture(nil, true)
+    state.dialogue:ShowUI("GOSSIP_SHOW")
+    state.now = state.now + 0.01
+    test.emit("GOSSIP_SHOW")
+    assert(state.clicks == 0, "A readiness signal from an earlier frame must not trigger the immediate path")
+    test.flush(0)
+    assert(state.clicks == 1, "Keep the deferred fallback")
+
+    test, state = gossipFixture(nil, true)
+    state.dialogue:ShowUI("GOSSIP_SHOW")
+    state.shift = true
+    test.emit("GOSSIP_SHOW")
+    test.flush(0)
+    assert(state.clicks == 0, "Opening with Shift must bypass the immediate path")
+end
+print("PASS: Dialogue UI skips as soon as the page is ready in either listener order")
 
 -- Availability is reflected by controls, and font changes visit only the affected category.
 do
@@ -2414,6 +2582,156 @@ do
 end
 print("PASS: Legacy Points art keeps its scale and fades into the backing at maximum height")
 
+-- Grass preview never writes CVars. Releasing applies the accepted distance and its fade.
+do
+    local test = fixture()
+    local env, writes = test.env, {}
+    local density, distance, fade = "groundEffectDensity", "groundEffectDist", "groundEffectFade"
+    local sparkles = "outlineModeShowLootEffectWhenDisabled"
+    local values = {[density] = 24, [distance] = 200, [fade] = 70, [sparkles] = 1, graphicsOutlineMode = 2}
+    local caps, denied, locked = {}, {}, {}
+    local getCVar, getCVarInfo = env.C_CVar.GetCVar, env.C_CVar.GetCVarInfo
+    env.C_CVar.GetCVar = function(name)
+        return values[name] and tostring(values[name]) or getCVar(name)
+    end
+    env.C_CVar.GetCVarInfo = function(name)
+        if values[name] then return tostring(values[name]), nil, false, false, locked[name], false, false end
+        return getCVarInfo(name)
+    end
+    env.C_CVar.SetCVar = function(name, value)
+        writes[#writes + 1] = name
+        if denied[name] then return false end
+        values[name] = math.min(caps[name] or math.huge, tonumber(value))
+        return true
+    end
+    test.login()
+    test.addon.ToggleOptions()
+    local densitySlider, distanceSlider = env.MinnTinkersWoWFGrassDensity, env.MinnTinkersWoWFGrassDistance
+    assert(densitySlider.enabled and distanceSlider.enabled and #writes == 0)
+
+    densitySlider:SetValue(80)
+    densitySlider:SetValue(256)
+    assert(#writes == 0 and values[density] == 24)
+    densitySlider.scripts.OnMouseUp(densitySlider, "RightButton")
+    assert(#writes == 0)
+    densitySlider.scripts.OnMouseUp(densitySlider, "LeftButton")
+    assert(#writes == 1 and writes[1] == density and values[density] == 256 and values[distance] == 200)
+
+    distanceSlider:SetValue(410)
+    assert(#writes == 1)
+    distanceSlider.scripts.OnMouseUp(distanceSlider, "LeftButton")
+    assert(#writes == 3 and values[distance] == 410 and values[fade] == 220)
+    distanceSlider:SetValue(500)
+    distanceSlider.scripts.OnMouseUp(distanceSlider, "LeftButton")
+    assert(values[distance] == 500 and values[fade] == 370)
+    distanceSlider:SetValue(320)
+    distanceSlider.scripts.OnMouseUp(distanceSlider, "LeftButton")
+    assert(values[distance] == 320 and values[fade] == 70 and values[density] == 256)
+
+    caps[distance] = 410
+    distanceSlider:SetValue(500)
+    distanceSlider.scripts.OnMouseUp(distanceSlider, "LeftButton")
+    assert(distanceSlider.value == 410 and values[distance] == 410 and values[fade] == 220)
+    denied[fade] = true
+    assert(not test.addon.WorldGraphics.SetDistance(320))
+    assert(values[distance] == 410 and values[fade] == 220, "Roll back distance when the fade write fails")
+    locked[fade] = true
+    local count = #writes
+    distanceSlider:Refresh()
+    assert(not distanceSlider.enabled and not test.addon.WorldGraphics.SetDistance(500) and #writes == count)
+    test.addon.ToggleOptions(); test.addon.ToggleOptions()
+    assert(#writes == count, "Opening the settings must not write graphics CVars")
+
+    local checkbox = env.MinnTinkersWoWFQuestSparkles
+    assert(checkbox.enabled and checkbox:GetChecked(), "Read the game's saved sparkle setting")
+    checkbox:SetChecked(false); checkbox.scripts.OnClick(checkbox)
+    assert(not checkbox:GetChecked() and values[sparkles] == 0 and #writes == count + 1 and writes[#writes] == sparkles)
+    denied[sparkles] = true
+    checkbox:SetChecked(true); checkbox.scripts.OnClick(checkbox)
+    assert(not checkbox:GetChecked() and values[sparkles] == 0, "Show the actual setting after a rejected write")
+    denied[sparkles] = nil
+    checkbox:SetChecked(true); checkbox.scripts.OnClick(checkbox)
+    assert(checkbox:GetChecked() and values[sparkles] == 1 and values.graphicsOutlineMode == 2)
+    locked[sparkles] = true; checkbox:Refresh()
+    assert(checkbox:GetChecked() and not checkbox.enabled)
+end
+print("PASS: grass controls and quest sparkles, accepted values, release-only sliders and failure recovery")
+
+-- Fishing audio fades in both directions and restores only the temporary channels.
+do
+    local test = fixture()
+    local env = test.env
+    MockValueAccess(env, function() return true end)
+    local music, ambience, effects = "Sound_MusicVolume", "Sound_AmbienceVolume", "Sound_SFXVolume"
+    local original, temp = {[music] = 0.8, [ambience] = 0.3, [effects] = 0.45}, {}
+    local channelName = nil
+    env.UnitChannelInfo = function(unit)
+        assert(unit == "player")
+        return channelName
+    end
+    env.C_Spell = {GetSpellName = function(spellID)
+        return (spellID == 7620 or spellID == 7731) and "Localized Fishing" or "Other spell"
+    end}
+    local getCVarInfo = env.C_CVar.GetCVarInfo
+    env.C_CVar.GetCVarInfo = function(name)
+        if original[name] then return tostring(temp[name] or original[name]), nil, false, false, false, false, false end
+        return getCVarInfo(name)
+    end
+    env.C_CVar.SetTempCVar = function(name, value)
+        assert(name == music or name == ambience or name == effects)
+        temp[name] = tonumber(value)
+    end
+    env.C_CVar.RemoveTempCVar = function(name) temp[name] = nil end
+    test.login()
+    test.addon.ToggleOptions()
+    local quiet = env.MinnTinkersWoWFQuietFishing
+    assert(quiet.enabled and not quiet.checked and not next(temp))
+    quiet:SetChecked(true); quiet.scripts.OnClick(quiet)
+    local frame
+    for _, candidate in ipairs(test.frames) do
+        if candidate:IsEventRegistered("UNIT_SPELLCAST_CHANNEL_START") then frame = candidate end
+    end
+    local function start(guid)
+        channelName = "Localized Fishing"
+        test.emit("UNIT_SPELLCAST_CHANNEL_START", "player", guid, 7731)
+    end
+    local function stop(guid)
+        channelName = nil
+        test.emit("UNIT_SPELLCAST_CHANNEL_STOP", "player", guid, 7731)
+    end
+    local function tick(delta) frame.scripts.OnUpdate(frame, delta) end
+    test.emit("UNIT_SPELLCAST_CHANNEL_START", "player", "other", 1)
+    assert(not frame.scripts.OnUpdate)
+    start("first")
+    assert(not next(temp))
+    tick(0.3)
+    assert(temp[music] == 0.4 and temp[ambience] == 0.15 and temp[effects] == 0.725)
+    tick(0.3)
+    assert(temp[music] == 0 and temp[ambience] == 0 and temp[effects] == 1 and not frame.scripts.OnUpdate)
+    stop("first")
+    assert(test.timers[1].delay == 8 and not frame.scripts.OnUpdate)
+    start("second")
+    assert(test.timers[1].cancelled and not frame.scripts.OnUpdate)
+    test.emit("UNIT_SPELLCAST_CHANNEL_STOP", "player", "first", 7731)
+    assert(#test.timers == 1)
+    stop("second"); test.flush(8)
+    tick(0.75)
+    assert(temp[music] == 0.4 and temp[ambience] == 0.15 and temp[effects] == 0.725)
+    start("third")
+    tick(0.3)
+    assert(temp[music] == 0.2 and temp[ambience] == 0.075 and temp[effects] == 0.8625)
+    tick(0.3)
+    stop("third"); test.flush(8)
+    tick(1.5)
+    assert(not next(temp) and original[music] == 0.8 and original[ambience] == 0.3 and original[effects] == 0.45)
+    original[effects] = 0
+    start("fourth"); tick(0.3)
+    assert(temp[effects] == 0.5)
+    test.emit("PLAYER_LOGOUT")
+    assert(not next(temp) and original[effects] == 0 and not frame.scripts.OnUpdate)
+end
+print("PASS: fishing audio fade out and in, recasts, delayed recovery, sound preferences, defaults and logout")
+
 -- Consistent rows and category gaps must fit the existing minimum window height.
 do
     local test = fixture(); test.login(); test.addon.ToggleOptions()
@@ -2427,11 +2745,14 @@ do
         assert(y(heading(page, title)) - (y(lastRow) + 26) == 24, "Section gaps must be equal: " .. title)
     end
     local universal, ui, chat = unpack(window.Inset.children)
-    gap(universal, "Camera", env.MinnTinkersWoWFFastAutoloot)
-    gap(universal, "Questing", env.MinnTinkersWoWFCameraDistance.parent)
+    gap(universal, "Game options", env.MinnTinkersWoWFFastAutoloot)
+    gap(universal, "Questing", env.MinnTinkersWoWFQuietFishing)
+    local sparkles = env.MinnTinkersWoWFQuestSparkles
+    assert(y(sparkles) == y(env.MinnTinkersWoWFQuietFishing) and sparkles.point[2] == universal and sparkles.point[3] == "TOP")
     local note
     for _, text in ipairs(universal.fontStrings) do if text.text == "Hold Shift to handle quests manually." then note = text end end
     assert(y(heading(universal, "NPC interaction")) - (y(note) - 6 + 26) == 24)
+    assert(y(env.MinnTinkersWoWFAutoSellJunk) + 26 < 606)
     gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
     gap(ui, "Range indicator", env.MinnTinkersWoWFCombat_width.parent)
     gap(ui, "Bar visibility", env.MinnTinkersWoWFRangeResetPosition)
@@ -2439,6 +2760,7 @@ do
     gap(chat, "Appearance", env.MinnTinkersWoWFChat_unreadMarker)
     gap(chat, "Timestamps", env.MinnTinkersWoWFChat_enhancedShadow)
     for _, rows in ipairs({
+        {env.MinnTinkersWoWFCameraDistance.parent, env.MinnTinkersWoWFGrassDensity.parent, env.MinnTinkersWoWFGrassDistance.parent, env.MinnTinkersWoWFQuietFishing},
         {env.MinnTinkersWoWFFont_keybinds.parent, env.MinnTinkersWoWFFont_itemCount.parent, env.MinnTinkersWoWFFont_macroText.parent},
         {env.MinnTinkersWoWFCombat_enabled, env.MinnTinkersWoWFCombat_opacity.parent, env.MinnTinkersWoWFCombat_width.parent},
         {env.MinnTinkersWoWFRangeEnabled, env.MinnTinkersWoWFRangeSpellSlot},

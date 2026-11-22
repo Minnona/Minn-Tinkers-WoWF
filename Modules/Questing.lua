@@ -3,6 +3,7 @@ local module = {}
 addon.Questing = module
 local events = CreateFrame("Frame")
 local session, manual, rewardQuest, rewardTimer, selectingReward
+local dialogueTimer
 local initialized
 local questInfo = {}
 
@@ -14,6 +15,7 @@ end
 local function CancelReward()
     rewardQuest = nil
     CancelLookup()
+    if dialogueTimer then dialogueTimer:Cancel(); dialogueTimer = nil end
 end
 
 local function EndSessionIfClosed()
@@ -61,6 +63,27 @@ local function Eligible(id, info)
     end
     return frequency == Enum.QuestFrequency.Daily or frequency == Enum.QuestFrequency.Weekly
         or (id == GetQuestID() and ((QuestIsDaily and QuestIsDaily()) or (QuestIsWeekly and QuestIsWeekly()))) or false
+end
+
+local function UsingDialogueUI()
+    return DUIQuestFrame and QuestFrame and not QuestFrame:IsEventRegistered("QUEST_COMPLETE")
+end
+
+local function QueueDialogueTurnIn(id)
+    -- Dialogue UI may build its reward page after our QUEST_COMPLETE handler.
+    dialogueTimer = C_Timer.NewTimer(0, function()
+        dialogueTimer = nil
+        if Bypassed() or GetQuestID() ~= id or not UsingDialogueUI() then return end
+
+        local dialogue = DUIQuestFrame
+        if not dialogue:IsShown() or dialogue.questID ~= id or dialogue.handler ~= "HandleQuestComplete" then return end
+        if GetNumQuestChoices() > 1 or not GetQuestMoneyToGet or GetQuestMoneyToGet() ~= 0 then return end
+
+        local button = dialogue.AcceptButton
+        if button and button.type == "complete" and button:IsVisible() and button:IsEnabled() then
+            button:Click("LeftButton")
+        end
+    end)
 end
 
 local function SelectReward(index)
@@ -206,12 +229,18 @@ function module.Initialize()
             if settings.autoAccept and Eligible(GetQuestID()) and not (QuestGetAutoAccept and QuestGetAutoAccept()) then AcceptQuest() end
         elseif event == "QUEST_PROGRESS" then
             CancelReward()
-            if settings.autoTurnIn and Eligible(GetQuestID()) and IsQuestCompletable() then CompleteQuest() end
+            if settings.autoTurnIn and Eligible(GetQuestID()) and IsQuestCompletable()
+                and (not UsingDialogueUI() or (GetQuestMoneyToGet and GetQuestMoneyToGet() == 0)) then CompleteQuest() end
         elseif event == "QUEST_COMPLETE" then
             CancelReward()
-            if (settings.autoTurnIn or settings.vendorReward) and Eligible(GetQuestID()) then
-                rewardQuest = GetQuestID()
-                FinishReward()
+            local id = GetQuestID()
+            if (settings.autoTurnIn or settings.vendorReward) and Eligible(id) then
+                if UsingDialogueUI() then
+                    if settings.autoTurnIn then QueueDialogueTurnIn(id) end
+                else
+                    rewardQuest = id
+                    FinishReward()
+                end
             end
         end
     end)

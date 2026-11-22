@@ -10,6 +10,9 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 
 - **Fast autoloot** skips the loot window when Auto Loot is on.
 - **Camera distance** lets you zoom out farther, up to 4.0.
+- **Grass density and distance** let you add more grass and see it farther away.
+- **Quiet while fishing** fades out music and ambience and raises effects to 100%. Your usual mix comes back after you stop.
+- **Quest item sparkles** highlights eligible objects when Outline Mode is off.
 - **Questing** accepts and turns in quests for you. Quests with multiple reward choices wait for you to turn them in. The addon can suggest the reward that sells for the most. Hold **Shift** to handle quests manually.
 - **Gossip** picks the only dialogue option when the NPC has no quests listed.
 - **Junk selling** sells grey items when you open a vendor. Hold **Shift** to skip it.
