@@ -41,6 +41,7 @@ Range indicator examples using the hunter class color:
 - **Copy chat** adds a button beside the chat input to open a copy window.
 - **New-message glow** pulses in your class color when messages arrive while you're scrolled up.
 - **Enhanced chat shadow** adds a little more shadow to chat text.
+- **Disable chat censoring** turns off both built-in chat filters.
 - **Save chat history** keeps recent chat after a reload or logout.
 - Use **Timestamps** to choose how the time appears on new messages.
 

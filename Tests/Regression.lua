@@ -2732,6 +2732,63 @@ do
 end
 print("PASS: fishing audio fade out and in, recasts, delayed recovery, sound preferences, defaults and logout")
 
+-- Chat censoring uses both native settings and remembers what to restore.
+do
+    local sources, profanity = "excludedCensorSources", "profanityFilter"
+    local function censorFixture(saved, initialSources, initialProfanity)
+        local test = fixture(saved)
+        local env = test.env
+        local values = {[sources] = initialSources, [profanity] = initialProfanity}
+        local defaults = {[sources] = "1", [profanity] = "1"}
+        local state = {writes = 0}
+        env.C_CVar.GetCVar = function(name) return values[name] end
+        env.C_CVar.GetCVarInfo = function(name)
+            return values[name], defaults[name], false, false, state.locked == name, false, false
+        end
+        env.C_CVar.SetCVar = function(name, value)
+            assert(defaults[name], "Only the two chat filters should change")
+            state.writes = state.writes + 1
+            if state.writes == state.denyWrite then return false end
+            values[name] = value
+            return true
+        end
+        test.login()
+        test.addon.ToggleOptions()
+        local checkbox = env.MinnTinkersWoWFChat_disableCensoring
+        local function toggle(value)
+            checkbox:SetChecked(value)
+            checkbox.scripts.OnClick(checkbox)
+        end
+        assert(state.writes == 0)
+        return test, values, state, checkbox, toggle
+    end
+
+    local test, values, state, checkbox, toggle = censorFixture(nil, "3", "1")
+    assert(checkbox.enabled and not checkbox:GetChecked())
+    toggle(true)
+    assert(checkbox:GetChecked() and values[sources] == "255" and values[profanity] == "0" and state.writes == 2)
+
+    test, values, state, checkbox, toggle = censorFixture(test.env.MinnTinkersWoWFDB, "255", "0")
+    assert(checkbox:GetChecked())
+    toggle(false)
+    assert(not checkbox:GetChecked() and values[sources] == "3" and values[profanity] == "1")
+    assert(test.env.MinnTinkersWoWFDB.chat.previousChatFilters == nil)
+
+    test, values, state, checkbox, toggle = censorFixture(nil, "3", "1")
+    state.denyWrite = 2
+    toggle(true)
+    assert(not checkbox:GetChecked() and values[sources] == "3" and values[profanity] == "1")
+    assert(test.env.MinnTinkersWoWFDB.chat.previousChatFilters == nil)
+    state.locked = profanity; checkbox:Refresh()
+    assert(not checkbox.enabled)
+
+    test, values, state, checkbox, toggle = censorFixture(nil, "255", "0")
+    assert(checkbox:GetChecked())
+    toggle(false)
+    assert(not checkbox:GetChecked() and values[sources] == "1" and values[profanity] == "1")
+end
+print("PASS: chat censoring and mature language toggle, restoration, rejection and locked settings")
+
 -- Consistent rows and category gaps must fit the existing minimum window height.
 do
     local test = fixture(); test.login(); test.addon.ToggleOptions()
@@ -2759,6 +2816,8 @@ do
     gap(chat, "Chat tools", env.MinnTinkersWoWFChat_preserveDraft)
     gap(chat, "Appearance", env.MinnTinkersWoWFChat_unreadMarker)
     gap(chat, "Timestamps", env.MinnTinkersWoWFChat_enhancedShadow)
+    local censoring = env.MinnTinkersWoWFChat_disableCensoring
+    assert(y(censoring) == y(env.MinnTinkersWoWFChat_enhancedShadow) and censoring.point[2] == chat and censoring.point[3] == "TOP")
     for _, rows in ipairs({
         {env.MinnTinkersWoWFCameraDistance.parent, env.MinnTinkersWoWFGrassDensity.parent, env.MinnTinkersWoWFGrassDistance.parent, env.MinnTinkersWoWFQuietFishing},
         {env.MinnTinkersWoWFFont_keybinds.parent, env.MinnTinkersWoWFFont_itemCount.parent, env.MinnTinkersWoWFFont_macroText.parent},

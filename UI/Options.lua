@@ -531,6 +531,11 @@ local function CreateOptions()
         "Enhanced chat shadow", "Adds a slightly larger shadow to chat text.",
         function() return MinnTinkersWoWFDB.chat.enhancedShadow end,
         addon.ChatShadow.SetEnabled, addon.ChatShadow.IsAvailable)
+    local censoring = CreateCheck(pages[3], "MinnTinkersWoWFChat_disableCensoring", y, true,
+        "Disable chat censoring", "Turns off Censor Messages and Mature Language Filter.",
+        addon.ChatTools.IsChatCensoringDisabled, addon.ChatTools.SetChatCensoringDisabled, addon.ChatTools.ChatFiltersAvailable)
+    censoring:HookScript("OnClick", censoring.Refresh)
+    checks[#checks + 1] = censoring
     y = CreateSection(pages[3], y + rowHeight + sectionGap, "Timestamps")
     local timestamps = CreateFrame("DropdownButton", "MinnTinkersWoWFChatTimestamps", pages[3], "WowStyle1DropdownTemplate")
     timestamps:SetSize(240, rowHeight)

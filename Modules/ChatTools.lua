@@ -151,6 +151,57 @@ function module.SetOption(key, value)
     if key == "copyChat" and not value and copyWindow then copyWindow:Hide() end
 end
 
+local uncensored = {excludedCensorSources = 255, profanityFilter = 0}
+
+local function GetChatFilters()
+    if not (C_CVar and C_CVar.GetCVar and C_CVar.GetCVarInfo and C_CVar.SetCVar) then return end
+    local current, defaults = {}, {}
+    for name in pairs(uncensored) do
+        local value, default, _, _, locked, secure, readOnly = C_CVar.GetCVarInfo(name)
+        current[name], defaults[name] = tonumber(value), tonumber(default)
+        if not (current[name] and defaults[name]) or locked or secure or readOnly then return end
+    end
+    return current, defaults
+end
+
+function module.ChatFiltersAvailable()
+    return GetChatFilters() ~= nil
+end
+
+function module.IsChatCensoringDisabled()
+    return C_CVar and C_CVar.GetCVar
+        and tonumber(C_CVar.GetCVar("excludedCensorSources")) == uncensored.excludedCensorSources
+        and tonumber(C_CVar.GetCVar("profanityFilter")) == uncensored.profanityFilter
+        or false
+end
+
+function module.SetChatCensoringDisabled(disabled)
+    local current, defaults = GetChatFilters()
+    if not current then return false end
+
+    local settings = MinnTinkersWoWFDB.chat
+    local previous = type(settings.previousChatFilters) == "table" and settings.previousChatFilters
+    local target = disabled and uncensored or previous or defaults
+    local changed = {}
+    for name in pairs(uncensored) do
+        local value = tonumber(target[name]) or defaults[name]
+        if value ~= current[name] then
+            changed[name] = true
+            if not C_CVar.SetCVar(name, tostring(value)) or tonumber(C_CVar.GetCVar(name)) ~= value then
+                for changedName in pairs(changed) do
+                    if tonumber(C_CVar.GetCVar(changedName)) ~= current[changedName] then
+                        C_CVar.SetCVar(changedName, tostring(current[changedName]))
+                    end
+                end
+                return false
+            end
+        end
+    end
+
+    settings.previousChatFilters = disabled and (previous or current) or nil
+    return true
+end
+
 function module.TimestampsAvailable()
     return Settings and Settings.GetValue and Settings.SetValue and TIMESTAMP_FORMAT_HHMM_24HR ~= nil
 end
