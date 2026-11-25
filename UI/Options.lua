@@ -308,6 +308,29 @@ local function CreateOptions()
         addon.AutoSellJunk.SetEnabled, addon.AutoSellJunk.IsAvailable)
     checks[#checks + 1] = junkCheck
 
+    y = CreateSection(pages[1], y + rowHeight + sectionGap, "Group")
+    local group = addon.GroupRequests
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFAutoAcceptGroupInvites", y, false,
+        "Auto-accept group invites", "Joins groups when you're invited.",
+        function() return MinnTinkersWoWFDB.autoAcceptGroupInvites end,
+        group.SetAcceptGroupInvites, group.CanAcceptGroupInvites)
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFGroupInvitesTrustedOnly", y, true,
+        "Friends and guildmates only", "Limits auto-accept to your character friends and guildmates.",
+        function() return MinnTinkersWoWFDB.groupInvitesTrustedOnly end,
+        group.SetTrustedInvitesOnly, group.CanFilterGroupInvites)
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFAutoInviteSuggestions", y + rowSpacing, false,
+        "Auto-invite suggested players", "Accepts invite suggestions from your group when there's room.",
+        function() return MinnTinkersWoWFDB.autoInviteSuggestions end,
+        addon.SuggestedInvites.SetEnabled, addon.SuggestedInvites.IsAvailable)
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFAutoAcceptSummons", y + rowSpacing, true,
+        "Auto-accept summons", "Accepts summons in the last five seconds.",
+        function() return MinnTinkersWoWFDB.autoAcceptSummons end,
+        group.SetAcceptSummons, group.CanAcceptSummons)
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFAutoAcceptDungeonResurrections", y + rowSpacing * 2, false,
+        "Auto-accept dungeon resurrections", "Accepts regular rezzes in dungeons. Battle rezzes stay manual.",
+        function() return MinnTinkersWoWFDB.autoAcceptDungeonResurrections end,
+        group.SetAcceptResurrections, group.CanAcceptResurrections)
+
     y = CreateSection(pages[2], 16, "Action-bar text")
     local sliders = {}
     for index, option in ipairs(addon.ActionBarFonts.options) do

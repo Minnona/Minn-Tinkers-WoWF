@@ -252,7 +252,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/CameraDistance.lua", "Modules/WorldGraphics.lua", "Modules/FishingSound.lua", "Modules/Questing.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/CameraDistance.lua", "Modules/WorldGraphics.lua", "Modules/FishingSound.lua", "Modules/Questing.lua", "Modules/GroupRequests.lua", "Modules/SuggestedInvites.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -2789,6 +2789,187 @@ do
 end
 print("PASS: chat censoring and mature language toggle, restoration, rejection and locked settings")
 
+-- Group suggestions get one approval when the group has room and can invite.
+do
+    local test = fixture()
+    local env = test.env
+    MockValueAccess(env, function() return true end)
+    local state = {count = 2, canInvite = true, kind = 2, suggester = "group-member", attempts = 0, hidden = 0}
+    env.LE_INVITE_CONFIRMATION_SUGGEST = 2
+    env.GetNextPendingInviteConfirmation = function() return state.invite end
+    env.GetInviteConfirmationInfo = function(invite)
+        assert(invite == state.invite)
+        return state.kind, "Suggested player", "player-guid", state.invalidRoles, state.convert
+    end
+    env.C_PartyInfo = {
+        CanInvite = function() return state.canInvite end,
+        GetInviteReferralInfo = function() return state.suggester end,
+        GetInviteConfirmationInvalidQueues = function() return state.queues end,
+    }
+    env.C_QuestSession = {HasJoined = function() return state.questSession end}
+    env.GetNumGroupMembers = function() return state.count end
+    env.IsInRaid = function() return state.inRaid == true end
+    env.UnitGUID = function(unit) return (unit == "party1" or unit == "raid2") and "group-member" or nil end
+    env.RespondToInviteConfirmation = function(invite, accept)
+        assert(invite == state.invite and accept == true)
+        state.attempts = state.attempts + 1
+        if state.blocked then error("Blocked") end
+        state.invite = nil
+    end
+    env.StaticPopup_Hide = function(which, invite)
+        assert(which == "GROUP_INVITE_CONFIRMATION" and invite == "invite-token")
+        state.hidden = state.hidden + 1
+    end
+    local function suggest()
+        state.invite = "invite-token"
+        test.emit("GROUP_INVITE_CONFIRMATION")
+    end
+
+    test.login(); test.addon.ToggleOptions()
+    local check = env.MinnTinkersWoWFAutoInviteSuggestions
+    assert(check.enabled and not check:GetChecked())
+    suggest()
+    assert(state.attempts == 0)
+    check:SetChecked(true); check.scripts.OnClick(check)
+    assert(state.attempts == 0, "Enabling must not accept an already pending invite")
+    suggest()
+    assert(state.attempts == 1 and state.hidden == 1)
+    for _, blocked in ipairs({
+        {"kind", 1}, {"kind", 3}, {"count", 1}, {"count", 5}, {"canInvite", false},
+        {"suggester", "outsider"}, {"convert", true}, {"invalidRoles", true}, {"queues", {{}}}, {"questSession", true},
+    }) do
+        local key, value = blocked[1], blocked[2]
+        local before = state[key]
+        state[key] = value
+        suggest()
+        assert(state.attempts == 1 and state.hidden == 1, key)
+        state[key] = before
+    end
+    state.blocked = true
+    suggest(); suggest()
+    assert(state.attempts == 2 and state.hidden == 1, "Keep the Blizzard prompt on a blocked response")
+    state.invite = nil; test.emit("GROUP_INVITE_CONFIRMATION")
+    state.blocked, state.inRaid, state.count = false, true, 6
+    suggest()
+    assert(state.attempts == 3 and state.hidden == 2)
+    check:SetChecked(false); check.scripts.OnClick(check)
+    suggest()
+    assert(state.attempts == 3 and not env.MinnTinkersWoWFDB.autoInviteSuggestions)
+end
+print("PASS: suggested invites, opt-in behavior, group and queue checks, and blocked-response fallback")
+
+-- Incoming group offers are opt-in and use readable game data.
+do
+    local test = fixture()
+    local env = test.env
+    local blockedValue = {}
+    MockValueAccess(env, function(value) return value ~= blockedValue end)
+    local state = {invites = 0, summons = 0, rezzes = 0, remaining = 120, teleport = true, now = 100, instance = "party"}
+    env.AcceptGroup = function() state.invites = state.invites + 1 end
+    env.C_FriendList = {IsFriend = function(guid) return guid == "Friend" end}
+    env.GetNumGuildMembers = function() return 1 end
+    env.GetGuildRosterInfo = function() return unpack({[17] = "Guildmate"}, 1, 17) end
+    env.C_SummonInfo = {
+        GetSummonConfirmTimeLeft = function() return state.remaining end,
+        ConfirmSummon = function() state.summons = state.summons + 1 end,
+    }
+    env.PlayerCanTeleport = function() return state.teleport end
+    env.UnitAffectingCombat = function() return not not state.fighting end
+    env.AcceptResurrect = function() state.rezzes = state.rezzes + 1 end
+    env.ResurrectGetOfferer = function() return state.offerer end
+    env.IsInInstance = function() return true, state.instance end
+    env.IsEncounterInProgress = function() return not not state.encounter end
+    env.UnitIsDeadOrGhost = function() return true end
+    env.UnitFullName = function(unit) return unit == "party1" and "Healer" or "Other", nil end
+    env.GetNormalizedRealmName = function() return "Northdale" end
+    env.GetTime = function() return state.now end
+    local function invite(guid, questSession)
+        test.emit("PARTY_INVITE_REQUEST", "Inviter", false, false, false, true, false, false, guid, questSession)
+    end
+    local function summon()
+        state.remaining = 120
+        test.emit("CONFIRM_SUMMON")
+        return test.timers[#test.timers]
+    end
+    local function offer(name)
+        state.offerer = name or "Healer"
+        test.emit("RESURRECT_REQUEST", state.offerer)
+    end
+    local function cast(event, id, guid)
+        test.emit("UNIT_SPELLCAST_" .. event, "party1", guid or "Cast-guid", id)
+    end
+
+    test.login(); test.addon.ToggleOptions()
+    local group = test.addon.GroupRequests
+    assert(env.MinnTinkersWoWFAutoAcceptGroupInvites.enabled and not env.MinnTinkersWoWFAutoAcceptGroupInvites:GetChecked())
+    assert(env.MinnTinkersWoWFGroupInvitesTrustedOnly:GetChecked())
+    invite("Friend")
+    summon()
+    offer()
+    assert(state.invites == 0 and #test.timers == 0 and state.rezzes == 0)
+    group.SetAcceptGroupInvites(true)
+    invite("Friend"); invite("Guildmate"); invite("Outsider"); invite(blockedValue)
+    assert(state.invites == 2)
+    group.SetTrustedInvitesOnly(false)
+    invite("Outsider"); invite("Friend", true)
+    assert(state.invites == 3)
+
+    group.SetAcceptSummons(true)
+    local timer = summon()
+    assert(timer.delay == 115 and state.summons == 0)
+    state.remaining = 5.1
+    timer.callback()
+    timer = test.timers[#test.timers]
+    assert(state.summons == 0 and timer.delay > 0)
+    state.remaining = 4.99
+    timer.callback()
+    assert(state.summons == 1)
+    timer = summon()
+    local replacement = summon()
+    assert(timer.cancelled)
+    state.remaining = 5
+    timer.callback()
+    assert(state.summons == 1, "A replacement summon owns its own deadline")
+    test.emit("CANCEL_SUMMON")
+    assert(replacement.cancelled)
+    replacement.callback()
+    assert(state.summons == 1)
+    timer = summon()
+    state.remaining, state.fighting = 4, true
+    timer.callback()
+    state.fighting = false
+    timer = summon()
+    state.remaining = 0
+    timer.callback()
+    assert(state.summons == 1, "Expired and combat-blocked summons stay manual")
+
+    group.SetAcceptResurrections(true)
+    cast("START", 2006); cast("SUCCEEDED", 2006); offer()
+    assert(state.rezzes == 1)
+    cast("START", 7328); offer("Healer-Northdale"); cast("SUCCEEDED", 7328)
+    assert(state.rezzes == 2, "Offer and completion can arrive in either order")
+    offer(); cast("START", 2006); cast("SUCCEEDED", 2006)
+    assert(state.rezzes == 2, "A later cast cannot claim an unidentified offer")
+    for _, case in ipairs({{battle = 20484}, {battle = blockedValue}, {instance = "raid"},
+        {encounter = true}, {fighting = true}, {name = "Other"}, {expired = true}, {interrupted = true}}) do
+        test.emit("PLAYER_ENTERING_WORLD")
+        state.instance, state.encounter, state.fighting = case.instance or "party", case.encounter, case.fighting
+        local spell = case.battle or 2006
+        cast("START", spell)
+        if case.interrupted then cast("INTERRUPTED", spell) end
+        cast("SUCCEEDED", spell)
+        if case.expired then state.now = state.now + 2 end
+        offer(case.name)
+        assert(state.rezzes == 2, "Only a fresh, matching regular dungeon resurrection can be accepted")
+    end
+    state.encounter = true
+    cast("START", 2006); offer()
+    state.encounter = false
+    cast("SUCCEEDED", 2006)
+    assert(state.rezzes == 2, "An offer received during combat stays manual afterward")
+end
+print("PASS: incoming invites, summon deadlines, and confirmed regular dungeon resurrections")
+
 -- Consistent rows and category gaps must fit the existing minimum window height.
 do
     local test = fixture(); test.login(); test.addon.ToggleOptions()
@@ -2809,7 +2990,13 @@ do
     local note
     for _, text in ipairs(universal.fontStrings) do if text.text == "Hold Shift to handle quests manually." then note = text end end
     assert(y(heading(universal, "NPC interaction")) - (y(note) - 6 + 26) == 24)
-    assert(y(env.MinnTinkersWoWFAutoSellJunk) + 26 < 606)
+    gap(universal, "Group", env.MinnTinkersWoWFAutoSellJunk)
+    local invites, trusted = env.MinnTinkersWoWFAutoAcceptGroupInvites, env.MinnTinkersWoWFGroupInvitesTrustedOnly
+    local suggested, summons = env.MinnTinkersWoWFAutoInviteSuggestions, env.MinnTinkersWoWFAutoAcceptSummons
+    local resurrections = env.MinnTinkersWoWFAutoAcceptDungeonResurrections
+    assert(y(trusted) == y(invites) and trusted.point[2] == universal and trusted.point[3] == "TOP")
+    assert(y(suggested) == y(invites) + 32 and y(summons) == y(suggested))
+    assert(y(resurrections) == y(suggested) + 32 and y(resurrections) + 26 < 606)
     gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
     gap(ui, "Range indicator", env.MinnTinkersWoWFCombat_width.parent)
     gap(ui, "Bar visibility", env.MinnTinkersWoWFRangeResetPosition)

@@ -16,6 +16,7 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 - **Questing** accepts and turns in quests for you. Quests with multiple reward choices wait for you to turn them in. The addon can suggest the reward that sells for the most. Hold **Shift** to handle quests manually.
 - **Gossip** picks the only dialogue option when the NPC has no quests listed.
 - **Junk selling** sells grey items when you open a vendor. Hold **Shift** to skip it.
+- **Group** can handle invites, invite suggestions, summons, and regular dungeon rezzes. Battle rezzes stay manual.
 
 <img src=".github/screenshots/universal.png" alt="Universal tab: looting, camera, questing and NPC interaction settings" width="560">
 
