@@ -252,7 +252,7 @@ local function fixture(saved, characterSaved)
         for _, f in ipairs(frames) do if f.events[event] then listeners[#listeners + 1] = f end end
         for _, f in ipairs(listeners) do f.scripts.OnEvent(f, event, ...) end
     end
-    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/CameraDistance.lua", "Modules/WorldGraphics.lua", "Modules/FishingSound.lua", "Modules/Questing.lua", "Modules/GroupRequests.lua", "Modules/SuggestedInvites.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
+    for _, file in ipairs({"Core.lua", "Modules/FastLoot.lua", "Modules/ActionBarFonts.lua", "Modules/BarVisibility.lua", "Modules/LockedBagSlots.lua", "Modules/CameraDistance.lua", "Modules/WorldGraphics.lua", "Modules/FishingSound.lua", "Modules/Questing.lua", "Modules/GroupRequests.lua", "Modules/SuggestedInvites.lua", "Modules/GossipSkip.lua", "Modules/AutoSellJunk.lua", "Modules/CombatIndicator.lua", "Modules/ChatURLs.lua", "Modules/ChatInput.lua", "Modules/ChatTools.lua", "Modules/ChatHistory.lua", "Modules/ChatShadow.lua", "Modules/RangeIndicator.lua", "Modules/PetHappinessBar.lua", "Modules/BuffReminder.lua", "UI/HunterOptions.lua", "UI/Options.lua"}) do
         local chunk = assert(loadfile(root .. "/" .. file))
         setfenv(chunk, env)("Minn Tinkers WoWF", addon)
     end
@@ -412,38 +412,40 @@ assert(select(2, reload.buttons[1].Count:GetFont()) == 14 and select(2, reload.b
 f = fixture(); f.env.ActionBarButtonEventsFrame = nil; f.login()
 assert(#f.messages == 1)
 
--- Camera slider changes only the supported limit, preserves native settings on first load.
+-- Camera distance saves and restores the player's setting without taking over when off.
 f = fixture(); f.login()
-assert(f.camera.value == 1.9 and f.camera.writes == 0 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == nil)
 f.env.SlashCmdList.MINNTINKERSWOWF()
-local cameraSlider, resize = f.env.MinnTinkersWoWFCameraDistance, f.env.MinnTinkersWoWFResize
+local cameraCheck, resize = f.env.MinnTinkersWoWFCameraDistance, f.env.MinnTinkersWoWFResize
 window = f.env.MinnTinkersWoWFOptions
-assert(cameraSlider.value == 1.9 and cameraSlider.enabled and f.camera.writes == 0)
+assert(cameraCheck.enabled and not cameraCheck:GetChecked() and f.camera.writes == 0)
+assert(not f.env.MinnTinkersWoWFFasterCameraZoom.enabled)
 assert(window.resizable and window.width == 560 and window.height == 670)
 assert(table.concat(resize.bounds, ",") == "560,670,560,800")
 assert(window.onResizeStartCallback(resize) == false and window.sizing[1] == "BOTTOM" and window.sizing[2])
-assert(f.addon.CameraDistance.max == 4.0)
-cameraSlider:SetValue(4.0)
-assert(f.camera.value == 4.0 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 4.0)
-local cameraReload = fixture(f.env.MinnTinkersWoWFDB); cameraReload.login()
-assert(cameraReload.camera.value == 4.0)
-f.addon.CameraDistance.SetFactor(100); assert(f.camera.value == 4.0)
-f.addon.CameraDistance.SetFactor(-1); assert(f.camera.value == 1)
-f.camera.cap = 2.4
-cameraSlider:SetValue(4.0)
-assert(cameraSlider.value == 2.4 and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.4)
-f.camera.reject = true
-assert(not f.addon.CameraDistance.SetFactor(2) and f.env.MinnTinkersWoWFDB.cameraMaxFactor == 2.4)
+f.camera.value = 2.6
+cameraCheck:SetChecked(true); cameraCheck.scripts.OnClick(cameraCheck)
+assert(cameraCheck:GetChecked() and f.camera.value == 4 and f.env.MinnTinkersWoWFDB.cameraDistanceBeforeExtension == 2.6)
 window:SetHeight(740); resize.resizeStopped(window)
 assert(f.env.MinnTinkersWoWFDB.windowWidth == nil and f.env.MinnTinkersWoWFDB.windowHeight == 740)
 f.env.MinnTinkersWoWFDB.windowWidth = 1100 -- Ignore a saved width from the older resizable window.
-reload = fixture(f.env.MinnTinkersWoWFDB); reload.login(); reload.env.SlashCmdList.MINNTINKERSWOWF()
-assert(reload.camera.value == 2.4 and reload.env.MinnTinkersWoWFOptions.width == 560 and reload.env.MinnTinkersWoWFOptions.height == 740)
+reload = fixture(f.env.MinnTinkersWoWFDB); reload.camera.value = 4
+reload.login(); reload.env.SlashCmdList.MINNTINKERSWOWF()
+assert(reload.camera.value == 4 and reload.env.MinnTinkersWoWFOptions.width == 560 and reload.env.MinnTinkersWoWFOptions.height == 740)
+cameraCheck = reload.env.MinnTinkersWoWFCameraDistance
+cameraCheck:SetChecked(false); cameraCheck.scripts.OnClick(cameraCheck)
+assert(not cameraCheck:GetChecked() and reload.camera.value == 2.6 and reload.env.MinnTinkersWoWFDB.cameraDistanceBeforeExtension == nil)
+reload.env.C_CVar.SetCVar("cameraDistanceMaxZoomFactor", "2"); reload.emit("PLAYER_ENTERING_WORLD")
+assert(reload.camera.value == 2, "Turning it off hands back control")
 
--- Restricted/missing CVars remain untouched, and programmatic UI refresh does not write.
+f = fixture({cameraMaxFactor = 3.2}); f.camera.value = 3.2; f.login()
+assert(f.camera.value == 3.2 and f.camera.writes == 0 and not f.env.MinnTinkersWoWFDB.extendedCameraDistance)
+f = fixture({cameraMaxFactor = 4}); f.camera.value = 4; f.login()
+assert(f.env.MinnTinkersWoWFDB.extendedCameraDistance and f.env.MinnTinkersWoWFDB.cameraMaxFactor == nil)
+f.addon.CameraDistance.SetExtendedDistance(false)
+assert(f.camera.value == 1.9, "An old maxed slider restores the client default when switched off")
+
 for _, restriction in ipairs({"locked", "secure", "readOnly"}) do
-    f = fixture({cameraMaxFactor = 2.6}); f.camera[restriction] = true; f.login()
-    assert(f.camera.writes == 0 and f.camera.value == 1.9 and #f.messages == 1)
+    f = fixture({extendedCameraDistance = true}); f.camera[restriction] = true; f.login()
     f.env.SlashCmdList.MINNTINKERSWOWF()
     assert(not f.env.MinnTinkersWoWFCameraDistance.enabled and f.camera.writes == 0)
 end
@@ -451,7 +453,11 @@ f = fixture(); f.env.C_CVar = nil; f.login(); f.env.SlashCmdList.MINNTINKERSWOWF
 assert(not f.env.MinnTinkersWoWFCameraDistance.enabled)
 f = fixture({windowWidth = 100, windowHeight = 900}); f.login(); f.env.SlashCmdList.MINNTINKERSWOWF()
 assert(f.env.MinnTinkersWoWFOptions.width == 560 and f.env.MinnTinkersWoWFOptions.height == 800)
-print("PASS: loot/font regressions, camera bounds/readback/persistence/restrictions, vertical-only resizing, saved size and UI refresh without writes")
+f.camera.cap = 2.4
+cameraCheck = f.env.MinnTinkersWoWFCameraDistance
+cameraCheck:SetChecked(true); cameraCheck.scripts.OnClick(cameraCheck)
+assert(not cameraCheck:GetChecked() and f.camera.value == 1.9, "A rejected limit restores the prior value and unchecks the option")
+print("PASS: camera toggle migration, restoration, restriction and rejected-limit handling, and saved window size")
 
 do
     local test = fixture({cameraMaxFactor = 4}); test.login()
@@ -460,27 +466,19 @@ do
     local nativeSet = env.C_CVar.SetCVar
     module.Initialize(); assert(camera.writes == 1)
     env.C_CVar.SetCVar(cvar, "2.6")
-    assert(camera.value == 4 and camera.writes == 3 and env.MinnTinkersWoWFDB.cameraMaxFactor == 4)
+    assert(camera.value == 4 and camera.writes == 3 and env.MinnTinkersWoWFDB.extendedCameraDistance)
     local writes = camera.writes
     for _ = 1, 100 do test.emit("CVAR_UPDATE", cvar, "4") end
     test.emit("CVAR_UPDATE", "unrelatedSetting", "0")
     assert(camera.writes == writes and #test.timers == 0, "Stable or unrelated events must not write or poll")
     camera.value = 2.6; test.emit("CVAR_UPDATE", cvar:lower(), "2.6"); assert(camera.value == 4)
-    module.SetFactor(3.2)
-    assert(camera.value == 3.2 and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2, "Slider changes must replace the enforced preference")
-    test.combat(true); env.C_CVar.SetCVar(cvar, "2.6"); assert(camera.value == 3.2)
-    camera.value = 2.6; test.emit("PLAYER_ENTERING_WORLD"); assert(camera.value == 3.2)
-    for _, restriction in ipairs({"locked", "secure", "readOnly"}) do
-        camera[restriction] = true; camera.value = 2.6; writes = camera.writes
-        test.emit("CVAR_UPDATE", cvar, "2.6")
-        assert(camera.writes == writes and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2)
-        camera[restriction] = false
-    end
-    camera.reject = true; writes = camera.writes
+    test.combat(true); env.C_CVar.SetCVar(cvar, "2.6"); assert(camera.value == 4)
+    camera.value = 2.6; test.emit("PLAYER_ENTERING_WORLD"); assert(camera.value == 4)
+    camera.reject = true; camera.value = 2.6; writes = camera.writes
     test.emit("CVAR_UPDATE", cvar, "2.6")
-    assert(camera.writes == writes + 1 and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2)
+    assert(camera.writes == writes + 1 and env.MinnTinkersWoWFDB.extendedCameraDistance)
     camera.reject = false
-    -- Simulate another synchronous listener immediately undoing our restore.
+    -- Simulate another listener immediately undoing our restore.
     local external = false
     env.C_CVar.SetCVar = function(name, value)
         local result = nativeSet(name, value)
@@ -493,13 +491,52 @@ do
     end
     writes = camera.writes
     test.emit("CVAR_UPDATE", cvar, "2.6")
-    assert(camera.writes <= writes + 2 and env.MinnTinkersWoWFDB.cameraMaxFactor == 3.2,
+    assert(camera.writes == writes + 2 and env.MinnTinkersWoWFDB.cameraDistanceBeforeExtension == 1.9,
         "Conflicting listeners must not recurse or replace the saved preference")
-    local untouched = fixture(); untouched.login(); untouched.camera.value = 2.6
-    untouched.emit("CVAR_UPDATE", cvar, "2.6"); untouched.emit("PLAYER_ENTERING_WORLD")
-    assert(untouched.camera.writes == 0, "No camera preference means no override")
 end
-print("PASS: camera preference overrides external changes, ignores stable/unrelated events, follows slider changes, respects restrictions and avoids recursive writes without polling")
+print("PASS: enabled camera distance overrides external changes without polling or recursive writes")
+
+do
+    local test = fixture()
+    local env = test.env
+    local base = {MOUSEWHEELUP = "CAMERAZOOMIN", MOUSEWHEELDOWN = "CAMERAZOOMOUT"}
+    local overrides, foreign, calls = {}, {}, {}
+    local combat = false
+    env.InCombatLockdown = function() return combat end
+    env.GetBindingAction = function(key, effective)
+        return (effective and (foreign[key] or overrides[key])) or base[key]
+    end
+    env.SetOverrideBindingClick = function(_, priority, key, name, button)
+        assert(not combat and not priority)
+        overrides[key] = function() env[name].scripts.OnClick(env[name], button) end
+    end
+    env.ClearOverrideBindings = function()
+        assert(not combat)
+        overrides = {}
+    end
+    env.CameraZoomIn = function(step) calls[#calls + 1] = step end
+    env.CameraZoomOut = function(step) calls[#calls + 1] = -step end
+    test.login(); test.addon.ToggleOptions()
+    local speed = env.MinnTinkersWoWFFasterCameraZoom
+    assert(speed.enabled and not speed:GetChecked() and next(overrides) == nil)
+    speed:SetChecked(true); speed.scripts.OnClick(speed)
+    overrides.MOUSEWHEELUP(); overrides.MOUSEWHEELDOWN()
+    assert(calls[1] == 1.5 and calls[2] == -1.5 and test.camera.writes == 0)
+    base.MOUSEWHEELUP = "ACTIONBUTTON1"
+    foreign.MOUSEWHEELDOWN = "CLICK OtherAddon"
+    test.emit("UPDATE_BINDINGS")
+    assert(next(overrides) == nil and foreign.MOUSEWHEELDOWN == "CLICK OtherAddon")
+    base.MOUSEWHEELUP, foreign.MOUSEWHEELDOWN = "CAMERAZOOMIN", nil
+    test.emit("UPDATE_BINDINGS")
+    assert(overrides.MOUSEWHEELUP and overrides.MOUSEWHEELDOWN)
+    combat = true
+    speed:SetChecked(false); speed.scripts.OnClick(speed)
+    assert(overrides.MOUSEWHEELUP, "Binding changes wait until combat ends")
+    combat = false
+    test.emit("PLAYER_REGEN_ENABLED")
+    assert(next(overrides) == nil and next(foreign) == nil)
+end
+print("PASS: wheel zoom uses 1.5 steps in both directions, respects custom bindings, and defers binding changes in combat")
 
 do
     local test = fixture(); test.login(); test.addon.ToggleOptions()
@@ -1219,10 +1256,8 @@ do
     test.addon.ActionBarFonts.SetIncrease("keybinds", 6)
     test.buttons[1]:UpdateHotkeys()
     assert(reads == 0, "Keybind changes must not inspect count or macro fonts")
-    test.camera.cap = 0.8; assert(test.addon.CameraDistance.SetFactor(2.6))
-    assert(test.env.MinnTinkersWoWFDB.cameraMaxFactor == 0.8 and test.addon.CameraDistance.GetFactor() == 0.8)
 end
-print("PASS: unavailable controls, independent font updates and unclamped accepted camera readback")
+print("PASS: unavailable controls and independent font updates")
 
 -- Merchant retries are event-driven, limited to original skipped slots, and bounded.
 do
@@ -2970,6 +3005,133 @@ do
 end
 print("PASS: incoming invites, summon deadlines, and confirmed regular dungeon resurrections")
 
+local function lockedBagFixture(saved)
+    local test = fixture(saved)
+    local env = test.env
+    MockValueAccess(env, function() return true end)
+    local state = {layouts = 0, sizing = 0, prompts = 0, reloads = 0}
+    env.StaticPopupDialogs = {}
+    env.StaticPopup_Show = function(which)
+        assert(env.StaticPopupDialogs[which])
+        state.popup = which
+        state.prompts = state.prompts + 1
+    end
+    env.StaticPopup_Hide = function(which)
+        if state.popup == which then state.popup = nil end
+    end
+    env.ReloadUI = function() state.reloads = state.reloads + 1 end
+    env.Enum.BagIndex = {Backpack = 0}
+    env.IsAccountSecured = function() return state.secured == true end
+    env.InputUtil = {IsGamepadUIEnabled = function() return state.gamepad == true end}
+    env.ContainerFrame_GetContainerNumSlots = function(bagID)
+        assert(bagID == 0)
+        return 20, state.secured and 20 or 16
+    end
+    env.AnchorUtil = {GridLayout = function(items, frame)
+        state.layouts = state.layouts + 1
+        assert(frame == env.ContainerFrame1 and #items == 16 and items[1]:GetID() == 16)
+    end}
+    env.NineSliceUtil = {UpdateCornerCropping = function(_, height)
+        state.sizing = state.sizing + 1
+        assert(height == 196 or height == 128)
+    end}
+    local function bag(slots, columns)
+        local frame = env.CreateFrame("Frame")
+        frame.Items = {}
+        for index = 1, slots do
+            local button = env.CreateFrame("Button")
+            local bagID = index <= 20 and 0 or 1
+            button:SetID(index <= 20 and 21 - index or index - 20)
+            button:SetHeight(30)
+            function button:GetBagID() return bagID end
+            function button:IsExtended() return not state.secured and bagID == 0 and self:GetID() > 16 end
+            function button:IsProtected() return self.protected == true end
+            frame.Items[index] = button
+        end
+        frame.AddSlotsButton = env.CreateFrame("Button")
+        function frame.AddSlotsButton:IsProtected() return self.protected == true end
+        function frame:EnumerateValidItems() return ipairs(self.Items) end
+        function frame:GetInitialItemAnchor() return self end
+        function frame:GetAnchorLayout() return {paddingY = 4} end
+        function frame:GetBagSize() return #self.Items end
+        function frame:GetColumns() return columns end
+        function frame:CalculateHeight() return 60 + 34 * math.ceil(#self.Items / columns) end
+        function frame:UpdateFrameSize() self:SetHeight(self.customHeight or self:CalculateHeight()) end
+        function frame:UpdateItemLayout() end
+        function frame:UpdateAddSlots() self.AddSlotsButton:SetShown(not state.secured) end
+        function frame:Open()
+            for _, button in ipairs(self.Items) do button:Show() end
+            self:UpdateAddSlots()
+            self:UpdateFrameSize()
+            self:UpdateItemLayout()
+        end
+        return frame
+    end
+
+    local backpack, combined = bag(20, 4), bag(22, 10)
+    env.ContainerFrame1, env.ContainerFrameCombinedBags = backpack, combined
+    test.login(); test.addon.ToggleOptions()
+    return test, state, backpack, combined
+end
+
+-- Track pending changes against the setting applied at reload in both directions.
+do
+    local test, state, backpack, combined = lockedBagFixture()
+    local check = test.env.MinnTinkersWoWFHideLockedBagSlots
+    assert(check.enabled and not check:GetChecked() and state.prompts == 0)
+
+    check:SetChecked(true); check.scripts.OnClick(check)
+    backpack:Open()
+    assert(state.popup and state.prompts == 1)
+    assert(backpack.Items[1]:IsShown() and backpack.AddSlotsButton:IsShown() and state.layouts == 0 and state.sizing == 0)
+    check:SetChecked(false); check.scripts.OnClick(check)
+    assert(not state.popup and state.prompts == 1)
+    check:SetChecked(true); check.scripts.OnClick(check)
+    test.env.StaticPopup_Hide(state.popup) -- Later
+    assert(test.env.MinnTinkersWoWFDB.hideLockedBagSlots and state.reloads == 0)
+    check:SetChecked(false); check.scripts.OnClick(check)
+    assert(not state.popup and state.prompts == 2)
+    check:SetChecked(true); check.scripts.OnClick(check)
+    test.env.StaticPopupDialogs[state.popup].OnAccept()
+    assert(state.reloads == 1)
+
+    test, state, backpack, combined = lockedBagFixture(test.env.MinnTinkersWoWFDB)
+    check = test.env.MinnTinkersWoWFHideLockedBagSlots
+    assert(check:GetChecked() and state.prompts == 0)
+    backpack:Open(); combined:Open()
+    assert(#backpack.Items == 20 and #combined.Items == 22 and state.layouts == 1 and state.sizing == 2)
+    assert(backpack:GetHeight() == 196 and combined:GetHeight() == 128, "Remove only native rows occupied by locked slots")
+    for _, frame in ipairs({backpack, combined}) do
+        assert(not frame.AddSlotsButton:IsShown())
+        for index, button in ipairs(frame.Items) do assert(button:IsShown() == (index > 4)) end
+    end
+    assert(combined.Items[5]:GetID() == 16 and combined.Items[21]:GetBagID() == 1)
+
+    combined.customHeight = 300; combined:Open()
+    assert(combined:GetHeight() == 300 and not combined.Items[1]:IsShown())
+    state.gamepad = true; backpack:Open()
+    assert(backpack:GetHeight() == 230 and state.layouts == 1 and not backpack.Items[1]:IsShown())
+    state.gamepad = false
+
+    backpack.Items[1].protected, backpack.AddSlotsButton.protected = true, true
+    test.combat(true); backpack:Open()
+    assert(backpack.Items[1]:IsShown() and backpack.AddSlotsButton:IsShown() and state.layouts == 1)
+    assert(not backpack.Items[2]:IsShown() and backpack.Items[5]:IsShown())
+    test.combat(false)
+    state.secured = true; backpack:Open()
+    assert(backpack.Items[1]:IsShown() and backpack:GetHeight() == 230 and state.layouts == 1)
+    state.secured = false
+    check:SetChecked(false); check.scripts.OnClick(check); backpack:Open()
+    assert(state.popup and state.prompts == 1 and not backpack.Items[1]:IsShown())
+    check:SetChecked(true); check.scripts.OnClick(check)
+    assert(not state.popup and state.prompts == 1)
+    check:SetChecked(false); check.scripts.OnClick(check)
+    test, state, backpack = lockedBagFixture(test.env.MinnTinkersWoWFDB)
+    backpack:Open()
+    assert(state.prompts == 0 and backpack.Items[1]:IsShown() and backpack.AddSlotsButton:IsShown() and backpack:GetHeight() == 230)
+end
+print("PASS: locked bag slots apply on reload, reverting either option state clears the prompt, and stock layout stays intact")
+
 -- Consistent rows and category gaps must fit the existing minimum window height.
 do
     local test = fixture(); test.login(); test.addon.ToggleOptions()
@@ -2999,14 +3161,14 @@ do
     assert(y(resurrections) == y(suggested) + 32 and y(resurrections) + 26 < 606)
     gap(ui, "Combat indicator", env.MinnTinkersWoWFFont_macroText.parent)
     gap(ui, "Range indicator", env.MinnTinkersWoWFCombat_width.parent)
-    gap(ui, "Bar visibility", env.MinnTinkersWoWFRangeResetPosition)
+    gap(ui, "Bags and bars", env.MinnTinkersWoWFRangeResetPosition)
     gap(chat, "Chat tools", env.MinnTinkersWoWFChat_preserveDraft)
     gap(chat, "Appearance", env.MinnTinkersWoWFChat_unreadMarker)
     gap(chat, "Timestamps", env.MinnTinkersWoWFChat_enhancedShadow)
     local censoring = env.MinnTinkersWoWFChat_disableCensoring
     assert(y(censoring) == y(env.MinnTinkersWoWFChat_enhancedShadow) and censoring.point[2] == chat and censoring.point[3] == "TOP")
     for _, rows in ipairs({
-        {env.MinnTinkersWoWFCameraDistance.parent, env.MinnTinkersWoWFGrassDensity.parent, env.MinnTinkersWoWFGrassDistance.parent, env.MinnTinkersWoWFQuietFishing},
+        {env.MinnTinkersWoWFCameraDistance, env.MinnTinkersWoWFGrassDensity.parent, env.MinnTinkersWoWFGrassDistance.parent, env.MinnTinkersWoWFQuietFishing},
         {env.MinnTinkersWoWFFont_keybinds.parent, env.MinnTinkersWoWFFont_itemCount.parent, env.MinnTinkersWoWFFont_macroText.parent},
         {env.MinnTinkersWoWFCombat_enabled, env.MinnTinkersWoWFCombat_opacity.parent, env.MinnTinkersWoWFCombat_width.parent},
         {env.MinnTinkersWoWFRangeEnabled, env.MinnTinkersWoWFRangeSpellSlot},
@@ -3016,9 +3178,12 @@ do
     end
     assert(y(env.MinnTinkersWoWFRangeResetPosition) + 26 == 502 and window.height == 670)
     assert(y(env.MinnTinkersWoWF_hideBagBar) + 26 == 576 and y(env.MinnTinkersWoWF_hideMicroBar) == y(env.MinnTinkersWoWF_hideBagBar))
+    assert(y(env.MinnTinkersWoWFHideLockedBagSlots) == y(env.MinnTinkersWoWF_hideBagBar))
     assert(heading(ui, "Range indicator").fontObject == "Game15Font_Shadow")
     assert(env.MinnTinkersWoWFRangeEnabled.Text.fontObject == "GameFontNormalSmall")
-    assert(env.MinnTinkersWoWFCameraDistance.parent.fontStrings[1].fontObject == "GameFontHighlight_NoShadow")
+    assert(env.MinnTinkersWoWFGrassDensity.parent.fontStrings[1].fontObject == "GameFontHighlight_NoShadow")
+    local fasterZoom = env.MinnTinkersWoWFFasterCameraZoom
+    assert(y(fasterZoom) == y(env.MinnTinkersWoWFCameraDistance) and fasterZoom.point[2] == universal and fasterZoom.point[3] == "TOP")
     assert(note.fontObject == "GameFontHighlightSmall2")
     local input = env.MinnTinkersWoWFRangeSpellInput
     local selectSpell, clearSpell = env.MinnTinkersWoWFRangeSelectSpell, env.MinnTinkersWoWFRangeClearSpell

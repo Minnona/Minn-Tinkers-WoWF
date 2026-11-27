@@ -9,7 +9,8 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 ## Universal
 
 - **Fast autoloot** skips the loot window when Auto Loot is on.
-- **Camera distance** lets you zoom out farther, up to 4.0.
+- **Extended camera distance** raises the zoom limit to 4.0.
+- **Faster camera zoom** moves the camera 50% farther per mouse wheel notch.
 - **Grass density and distance** let you add more grass and see it farther away.
 - **Quiet while fishing** fades out music and ambience and raises effects to 100%. Your usual mix comes back after you stop.
 - **Quest item sparkles** highlights eligible objects when Outline Mode is off.
@@ -24,7 +25,7 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 
 - Set separate sizes for **keybinds**, **item counts**, and **macro names** on the action bar.
 - **Combat indicator** adds a red glow around the screen while you're in combat.
-- **Bar visibility** lets you hide the bag bar or microbar.
+- **Bags and bars** lets you hide the bag bar, microbar, or locked 2FA backpack slots.
 - **Range indicator** shows a movable dot that turns red when your target is out of range of your chosen spell. In range, it uses white or your class color.
 
 <img src=".github/screenshots/ui.png" alt="UI tab showing action-bar text, combat glow, range indicator, and bar visibility" width="560">

@@ -246,17 +246,18 @@ local function CreateOptions()
         function() return MinnTinkersWoWFDB.fastAutoloot end, addon.SetFastAutoloot)
 
     y = CreateSection(pages[1], y + rowHeight + sectionGap, "Game options")
-    local camera = CreateSlider(pages[1], "MinnTinkersWoWFCameraDistance", y, {
-        label = "Max camera distance",
-        min = addon.CameraDistance.min, max = addon.CameraDistance.max, step = 0.1,
-        getValue = addon.CameraDistance.GetFactor,
-        setValue = addon.CameraDistance.SetFactor,
-        isAvailable = addon.CameraDistance.IsAvailable,
-        format = function(value)
-            return string.format("%.1f", value)
-        end,
-        tooltip = "Lets you zoom farther out, up to 4.0.",
-    })
+    local checks = {}
+    local camera = addon.CameraDistance
+    local distance = CreateCheck(pages[1], "MinnTinkersWoWFCameraDistance", y, false,
+        "Extended camera distance", "Lets you zoom farther out, up to 4.0.",
+        function() return MinnTinkersWoWFDB.extendedCameraDistance end,
+        camera.SetExtendedDistance, camera.IsAvailable)
+    distance:HookScript("OnClick", distance.Refresh)
+    checks[#checks + 1] = distance
+    checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFFasterCameraZoom", y, true,
+        "Faster camera zoom", "Zooms 50% farther per mouse wheel notch.",
+        function() return MinnTinkersWoWFDB.fasterCameraZoom end,
+        camera.SetFasterZoom, camera.IsFasterZoomAvailable)
 
     local graphics = addon.WorldGraphics
     local grassDensity = CreateSlider(pages[1], "MinnTinkersWoWFGrassDensity", y + rowSpacing, {
@@ -270,7 +271,6 @@ local function CreateOptions()
         format = tostring, tooltip = "Shows grass farther away and blends it into the distance.", applyOnRelease = true,
     })
 
-    local checks = {}
     checks[#checks + 1] = CreateCheck(pages[1], "MinnTinkersWoWFQuietFishing", y + rowSpacing * 3, false,
         "Quiet while fishing", "Fades out music and ambience and raises effects to 100%. Your usual volumes start returning eight seconds after you stop fishing.",
         function() return MinnTinkersWoWFDB.quietFishing end, addon.FishingSound.SetEnabled, addon.FishingSound.IsAvailable)
@@ -430,19 +430,32 @@ local function CreateOptions()
     resetRange:SetText("Reset position")
     resetRange:SetScript("OnClick", range.ResetPosition)
 
-    local barY = CreateSection(pages[2], rangeY + rowSpacing * 5 + rowHeight + sectionGap, "Bar visibility")
+    local barY = CreateSection(pages[2], rangeY + rowSpacing * 5 + rowHeight + sectionGap, "Bags and bars")
     local barVisibility = addon.BarVisibility
     for index, option in ipairs({
         { key = "hideBagBar", label = "Hide bag bar", tooltip = "Hides the bag buttons. Your bag keybinds still work." },
         { key = "hideMicroBar", label = "Hide microbar", tooltip = "Hides the character, spellbook, and other menu buttons." },
     }) do
         local key = option.key
-        checks[#checks + 1] = CreateCheck(pages[2], "MinnTinkersWoWF_" .. key, barY, index == 2, option.label,
+        local barCheck = CreateCheck(pages[2], "MinnTinkersWoWF_" .. key, barY, false, option.label,
             option.tooltip .. " Changes made in combat apply afterward.",
             function() return barVisibility.GetHidden(key) end,
             function(value) barVisibility.SetHidden(key, value) end,
             function() return barVisibility.IsAvailable(key) end)
+        if index == 2 then
+            barCheck:ClearAllPoints()
+            barCheck:SetPoint("TOPLEFT", 192, -barY)
+        end
+        checks[#checks + 1] = barCheck
     end
+    local lockedSlots = addon.LockedBagSlots
+    local lockedSlotsCheck = CreateCheck(pages[2], "MinnTinkersWoWFHideLockedBagSlots", barY, false,
+        "Hide locked 2FA slots", "Hides the backpack slots that require an authenticator. Requires a UI reload.",
+        function() return MinnTinkersWoWFDB.hideLockedBagSlots end,
+        lockedSlots.SetEnabled, lockedSlots.IsAvailable)
+    lockedSlotsCheck:ClearAllPoints()
+    lockedSlotsCheck:SetPoint("TOPLEFT", 372, -barY)
+    checks[#checks + 1] = lockedSlotsCheck
 
     local function RefreshRangeOptions()
         local available = range.IsAvailable()
@@ -597,7 +610,6 @@ local function CreateOptions()
         for _, option in ipairs(addon.ActionBarFonts.options) do
             sliders[option.key]:Refresh()
         end
-        camera:Refresh()
         grassDensity:Refresh()
         grassDistance:Refresh()
         combatOpacity:Refresh()
