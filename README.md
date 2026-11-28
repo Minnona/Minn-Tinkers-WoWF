@@ -19,7 +19,7 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 - **Junk selling** sells grey items when you open a vendor. Hold **Shift** to skip it.
 - **Group** can handle invites, invite suggestions, summons, and regular dungeon rezzes. Battle rezzes stay manual.
 
-<img src=".github/screenshots/universal.png" alt="Universal tab: looting, camera, questing and NPC interaction settings" width="560">
+<img src=".github/screenshots/universal.png" alt="Universal tab with camera, questing, and group settings" width="560">
 
 ## UI
 
@@ -28,7 +28,7 @@ Extract the ZIP into `Interface/AddOns/`, keeping the folder named `Minn Tinkers
 - **Bags and bars** lets you hide the bag bar, microbar, or locked 2FA backpack slots.
 - **Range indicator** shows a movable dot that turns red when your target is out of range of your chosen spell. In range, it uses white or your class color.
 
-<img src=".github/screenshots/ui.png" alt="UI tab showing action-bar text, combat glow, range indicator, and bar visibility" width="560">
+<img src=".github/screenshots/ui.png" alt="UI tab with action-bar text, range indicator, and bag visibility settings" width="560">
 
 Range indicator examples using the hunter class color:
 
@@ -47,7 +47,7 @@ Range indicator examples using the hunter class color:
 - **Save chat history** keeps recent chat after a reload or logout.
 - Use **Timestamps** to choose how the time appears on new messages.
 
-<img src=".github/screenshots/chat.png" alt="Chat tab: draft preservation, message history, URLs, copying, unread messages and timestamps" width="560">
+<img src=".github/screenshots/chat.png" alt="Chat tab with chat input, chat tools, and appearance settings" width="560">
 
 ## Hunter
 
